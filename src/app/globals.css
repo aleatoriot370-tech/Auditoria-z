@@ -1,0 +1,166 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-accent-foreground: var(--brand-accent-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+
+  /* Brand colors derived from Grupo Lamoia logo */
+  --brand: #132999;            /* deep blue */
+  --brand-foreground: #ffffff;
+  --brand-accent: #AEF544;     /* lime green */
+  --brand-accent-foreground: #0f2070;
+
+  --background: oklch(0.99 0.005 250);
+  --foreground: oklch(0.18 0.04 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.04 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.04 260);
+  --primary: #132999;
+  --primary-foreground: #ffffff;
+  --secondary: oklch(0.96 0.015 250);
+  --secondary-foreground: #132999;
+  --muted: oklch(0.96 0.01 250);
+  --muted-foreground: oklch(0.48 0.03 260);
+  --accent: #AEF544;
+  --accent-foreground: #0f2070;
+  --destructive: oklch(0.58 0.22 25);
+  --border: oklch(0.92 0.01 250);
+  --input: oklch(0.92 0.01 250);
+  --ring: #132999;
+  --chart-1: #132999;
+  --chart-2: #AEF544;
+  --chart-3: #4f6bd9;
+  --chart-4: #f59e0b;
+  --chart-5: #ef4444;
+  --sidebar: #0c1d6b;
+  --sidebar-foreground: #e8ecff;
+  --sidebar-primary: #AEF544;
+  --sidebar-primary-foreground: #0c1d6b;
+  --sidebar-accent: #1a2f8a;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-ring: #AEF544;
+}
+
+.dark {
+  --background: oklch(0.13 0.02 260);
+  --foreground: oklch(0.97 0.01 250);
+  --card: oklch(0.18 0.03 260);
+  --card-foreground: oklch(0.97 0.01 250);
+  --popover: oklch(0.18 0.03 260);
+  --popover-foreground: oklch(0.97 0.01 250);
+  --primary: #2a47c9;
+  --primary-foreground: #ffffff;
+  --secondary: oklch(0.24 0.03 260);
+  --secondary-foreground: oklch(0.97 0.01 250);
+  --muted: oklch(0.24 0.03 260);
+  --muted-foreground: oklch(0.7 0.02 250);
+  --accent: #AEF544;
+  --accent-foreground: #0f2070;
+  --destructive: oklch(0.7 0.19 22);
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: #2a47c9;
+  --chart-1: #2a47c9;
+  --chart-2: #AEF544;
+  --chart-3: #6b85e0;
+  --chart-4: #f59e0b;
+  --chart-5: #ef4444;
+  --sidebar: #060f3a;
+  --sidebar-foreground: #e8ecff;
+  --sidebar-primary: #AEF544;
+  --sidebar-primary-foreground: #0c1d6b;
+  --sidebar-accent: #1a2f8a;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-ring: #AEF544;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(19, 41, 153, 0.25);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(19, 41, 153, 0.45);
+  }
+}
+
+@layer utilities {
+  .brand-gradient {
+    background-image: linear-gradient(135deg, #132999 0%, #1a36b8 50%, #2a47c9 100%);
+  }
+  .accent-glow {
+    box-shadow: 0 0 0 1px rgba(174, 245, 68, 0.4), 0 8px 24px -8px rgba(174, 245, 68, 0.45);
+  }
+  .card-shadow {
+    box-shadow: 0 1px 2px rgba(19, 41, 153, 0.06), 0 8px 24px -12px rgba(19, 41, 153, 0.18);
+  }
+  .text-gradient-brand {
+    background: linear-gradient(90deg, #132999 0%, #2a47c9 50%, #AEF544 130%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}

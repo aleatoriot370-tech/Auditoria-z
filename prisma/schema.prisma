@@ -1,0 +1,71 @@
+// Prisma schema - mirrors the Supabase tables used by Grupo Lamoia audit system.
+// Used only when Supabase env vars are NOT set (sandbox/local preview).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./db/custom.db"
+}
+
+model Users {
+  id_user    Int      @id @default(autoincrement())
+  created_at DateTime @default(now())
+  Login      String?  @unique
+  Senha      String?
+  Tipo       String?  // 'Admin Senior' | 'Admin Junior' | 'Comercial' | 'Qualidade' | 'User' ...
+  Nome       String?
+  Status     String?  // 'a' = ativo, 'i' = inativo
+  ag_agenda_ag_agenda_id_gerenteToUsers   ag_agenda[] @relation("ag_agenda_id_gerenteToUsers")
+  ag_agenda_ag_agenda_id_vendedorToUsers  ag_agenda[] @relation("ag_agenda_id_vendedorToUsers")
+}
+
+model Clientes {
+  id        Int      @id @default(autoincrement())
+  created_at DateTime @default(now())
+  Codigo    Int      @unique
+  Razao     String?
+  CNPJ_CPF  BigInt?
+  Endereco  String?
+  Bairro    String?
+  Cidade    String?
+  UF        String?
+  ag_agenda_diaria ag_agenda_diaria[]
+}
+
+model ag_agenda {
+  id_agenda     Int      @id @default(autoincrement())
+  data_criacao  DateTime @default(now())
+  id_gerente    Int?
+  id_vendedor   Int?
+  status_atual  String?  // 'Pendente' | 'Finalizado' | 'Cancelado'
+  data_agenda   DateTime?
+  mes_referencia String? // 'MM-YYYY'
+  placa         String?
+  hora_inicial  String?
+  hora_fim      String?
+  total_hora    String?
+  eficiencia    Float?
+  id_auditor    Int?
+  data_aud      DateTime?
+  almoco        String?  // 'S' | 'N'
+  obs_geral     String?
+  Users_UsersToag_agenda_id_gerente   Users?   @relation("ag_agenda_id_gerenteToUsers", fields: [id_gerente], references: [id_user], onDelete: Cascade, onUpdate: Cascade)
+  Users_UsersToag_agenda_id_vendedor  Users?   @relation("ag_agenda_id_vendedorToUsers", fields: [id_vendedor], references: [id_user], onDelete: Cascade, onUpdate: Cascade)
+  ag_agenda_diaria ag_agenda_diaria[]
+}
+
+model ag_agenda_diaria {
+  id_ad              Int      @id @default(autoincrement())
+  id_a               Int?
+  id_clientes        Int?
+  status_atendimento String?  // 'Pendente' | 'Pendente Auditoria' | 'Realizado' | 'Cancelado'
+  data_hora_atendimento DateTime?
+  observacao         String?
+  latitude           String?
+  longitude          String?
+  ag_agenda          ag_agenda? @relation(fields: [id_a], references: [id_agenda], onDelete: Cascade, onUpdate: Cascade)
+  Clientes           Clientes?  @relation(fields: [id_clientes], references: [Codigo], onDelete: Cascade, onUpdate: Cascade)
+}

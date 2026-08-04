@@ -1,0 +1,23 @@
+[build]
+  command = "bun run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NEXT_PUBLIC_SUPABASE_URL = ""
+  NEXT_PUBLIC_SUPABASE_ANON_KEY = ""
+  SUPABASE_SERVICE_ROLE_KEY = ""
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Cache static assets aggressively
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/logo-lamoia.png"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
