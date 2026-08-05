@@ -163,15 +163,6 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
               )}
             </button>
           </form>
-
-          <div className="rounded-lg border border-border bg-card p-4 text-xs text-muted-foreground leading-relaxed">
-            <p className="font-semibold text-foreground mb-2">Acesso de demonstração:</p>
-            <ul className="space-y-1">
-              <li><span className="text-foreground font-medium">admin</span> / admin123 — Admin Senior</li>
-              <li><span className="text-foreground font-medium">junior</span> / admin123 — Admin Junior</li>
-              <li><span className="text-foreground font-medium">comercial1</span> / admin123 — Comercial</li>
-            </ul>
-          </div>
         </div>
       </div>
     </div>

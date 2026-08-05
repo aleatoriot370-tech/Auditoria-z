@@ -1,4 +1,4 @@
-// Run with: bun run scripts/seed.ts
+// Run with: bun run scripts/seed.ts  (or: node scripts/seed.js for cross-platform)
 // Seeds the local SQLite with sample data for sandbox preview.
 // In production, the user runs `supabase.sql` against their Supabase instance.
 
@@ -11,6 +11,10 @@ async function main() {
   console.log('Seeding local SQLite database...')
 
   // --- Users ---
+  // Tipo conceitos:
+  //   - 'Admin Senior' / 'Admin Junior' = Administrativo (gestão do sistema)
+  //   - 'Comercial'                    = Gestor (lidera vendedores)
+  //   - 'Users'                        = Vendedor (executa as rotas)
   const pwdHash = await bcrypt.hash('admin123', 10)
   const adminSr = await db.users.upsert({
     where: { Login: 'admin' },
@@ -36,7 +40,8 @@ async function main() {
     },
   })
 
-  const vendedor1 = await db.users.upsert({
+  // Gestores (Tipo = 'Comercial')
+  const gestor1 = await db.users.upsert({
     where: { Login: 'comercial1' },
     update: {},
     create: {
@@ -48,7 +53,7 @@ async function main() {
     },
   })
 
-  const vendedor2 = await db.users.upsert({
+  const gestor2 = await db.users.upsert({
     where: { Login: 'comercial2' },
     update: {},
     create: {
@@ -60,7 +65,7 @@ async function main() {
     },
   })
 
-  const vendedor3 = await db.users.upsert({
+  const gestor3 = await db.users.upsert({
     where: { Login: 'comercial3' },
     update: {},
     create: {
@@ -72,14 +77,51 @@ async function main() {
     },
   })
 
-  // inactive user to test login refusal
+  // Vendedores (Tipo = 'Users')
+  const vendedor1 = await db.users.upsert({
+    where: { Login: 'vendedor1' },
+    update: {},
+    create: {
+      Login: 'vendedor1',
+      Senha: pwdHash,
+      Tipo: 'Users',
+      Nome: 'Roberto Silva',
+      Status: 'a',
+    },
+  })
+
+  const vendedor2 = await db.users.upsert({
+    where: { Login: 'vendedor2' },
+    update: {},
+    create: {
+      Login: 'vendedor2',
+      Senha: pwdHash,
+      Tipo: 'Users',
+      Nome: 'Ana Paula Oliveira',
+      Status: 'a',
+    },
+  })
+
+  const vendedor3 = await db.users.upsert({
+    where: { Login: 'vendedor3' },
+    update: {},
+    create: {
+      Login: 'vendedor3',
+      Senha: pwdHash,
+      Tipo: 'Users',
+      Nome: 'Fernando Souza',
+      Status: 'a',
+    },
+  })
+
+  // inactive user (Tipo = 'Users' but Status = 'i')
   await db.users.upsert({
     where: { Login: 'inativo' },
     update: {},
     create: {
       Login: 'inativo',
       Senha: pwdHash,
-      Tipo: 'Comercial',
+      Tipo: 'Users',
       Nome: 'Usuario Inativo',
       Status: 'i',
     },
@@ -117,28 +159,64 @@ async function main() {
     })
   }
 
-  // --- Agendas (sample, some finalized) ---
+  // --- Agendas ---
   const today = new Date()
-  const fmt = (d: Date) => d.toISOString().slice(0, 10)
   const mes_ref = (d: Date) => `${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`
+  const vendedores = [vendedor1, vendedor2, vendedor3]
+  const gestores = [gestor1, gestor2, gestor3]
 
-  // Pending agendas for current month
-  for (let i = 0; i < 5; i++) {
+  // Pending agendas for PAST dates (auditable — for testing the auditoria flow)
+  for (let i = 1; i <= 3; i++) {
     const date = new Date(today)
-    date.setDate(today.getDate() + i)
-    const vendedor = [vendedor1, vendedor2, vendedor3][i % 3]
+    date.setDate(today.getDate() - i)
+    const vendedor = vendedores[(i - 1) % 3]
+    const gestor = gestores[(i - 1) % 3]
     const ag = await db.ag_agenda.create({
       data: {
-        id_gerente: adminSr.id_user,
+        id_gerente: gestor.id_user,
         id_vendedor: vendedor.id_user,
         status_atual: 'Pendente',
         data_agenda: date,
         mes_referencia: mes_ref(date),
-        placa: `ABC${1000 + i}`,
+        placa: `PAS${1000 + i}`,
+        data_criacao: new Date(date.getTime() - 86400000),
+      },
+    })
+    const numVisits = 3 + (i % 3)
+    for (let j = 0; j < numVisits; j++) {
+      const cliente = clientes[(i + j) % clientes.length]
+      const visitDate = new Date(date)
+      visitDate.setHours(8 + j * 2, 0, 0, 0)
+      await db.ag_agenda_diaria.create({
+        data: {
+          id_a: ag.id_agenda,
+          id_clientes: cliente.Codigo,
+          status_atendimento: 'Pendente',
+          data_hora_atendimento: visitDate,
+          latitude: '-23.5505',
+          longitude: '-46.6333',
+        },
+      })
+    }
+  }
+
+  // Pending agendas for TODAY and FUTURE dates (NOT auditable — visit hasn't happened yet)
+  for (let i = 0; i < 5; i++) {
+    const date = new Date(today)
+    date.setDate(today.getDate() + i)
+    const vendedor = vendedores[i % 3]
+    const gestor = gestores[i % 3]
+    const ag = await db.ag_agenda.create({
+      data: {
+        id_gerente: gestor.id_user,
+        id_vendedor: vendedor.id_user,
+        status_atual: 'Pendente',
+        data_agenda: date,
+        mes_referencia: mes_ref(date),
+        placa: `FUT${1000 + i}`,
         data_criacao: new Date(),
       },
     })
-    // add 3-5 visits per agenda
     const numVisits = 3 + (i % 3)
     for (let j = 0; j < numVisits; j++) {
       const cliente = clientes[(i + j) % clientes.length]
@@ -158,25 +236,33 @@ async function main() {
   }
 
   // Finalized agendas for past dates
+  // Helper: "HH:MM" → Date (epoch date + time, UTC)
+  const timeToDate = (time: string): Date => {
+    const [h, m] = time.split(':').map(Number)
+    return new Date(Date.UTC(1970, 0, 1, h || 0, m || 0, 0, 0))
+  }
+
   for (let i = 1; i <= 8; i++) {
     const date = new Date(today)
     date.setDate(today.getDate() - i)
-    const vendedor = [vendedor1, vendedor2, vendedor3][i % 3]
+    const vendedor = vendedores[i % 3]
+    const gestor = gestores[i % 3]
     const realizadas = 2 + (i % 3)
     const canceladas = i % 2
     const total = realizadas + canceladas + (i % 2)
     const eficiencia = total > 0 ? (realizadas / total) * 100 : 0
     const ag = await db.ag_agenda.create({
       data: {
-        id_gerente: adminSr.id_user,
+        id_gerente: gestor.id_user,
         id_vendedor: vendedor.id_user,
         status_atual: 'Finalizado',
         data_agenda: date,
         mes_referencia: mes_ref(date),
         placa: `XYZ${2000 + i}`,
         data_criacao: new Date(date.getTime() - 86400000),
-        hora_inicial: '08:00',
-        hora_fim: '17:00',
+        // ⚠️ hora_inicial / hora_fim are now timestamp columns (Date, not string)
+        hora_inicial: timeToDate('08:00'),
+        hora_fim: timeToDate('17:00'),
         total_hora: '08:00',
         almoco: 'S',
         eficiencia,
@@ -205,11 +291,19 @@ async function main() {
   }
 
   console.log('Seed completed successfully!')
-  console.log('Login: admin / admin123  (Admin Senior)')
-  console.log('Login: junior / admin123 (Admin Junior)')
-  console.log('Login: comercial1 / admin123 (Comercial - Mariana)')
-  console.log('Login: qualidade / admin123 (unauthorized tipo - should fail)')
-  console.log('Login: inativo / admin123 (inactive - should fail)')
+  console.log('---')
+  console.log('Tipo conceitos:')
+  console.log('  Admin Senior / Admin Junior = Administrativo')
+  console.log('  Comercial                   = Gestor')
+  console.log('  Users                       = Vendedor')
+  console.log('---')
+  console.log('Logins de demonstração:')
+  console.log('  admin / admin123     (Admin Senior)')
+  console.log('  junior / admin123    (Admin Junior)')
+  console.log('  comercial1 / admin123 (Comercial = Gestor)')
+  console.log('  vendedor1 / admin123  (Users = Vendedor)')
+  console.log('  qualidade / admin123  (unauthorized tipo - should fail)')
+  console.log('  inativo / admin123    (inactive - should fail)')
 }
 
 main()

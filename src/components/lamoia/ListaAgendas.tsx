@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Search, Loader2, Eye, Trash2, X, Plus, Save, RefreshCw,
 } from 'lucide-react'
@@ -25,22 +25,27 @@ interface ListResponse {
   canDelete: boolean
 }
 
+interface Visita {
+  id_ad: number
+  id_clientes: number | null
+  status_atendimento: string | null
+  cliente?: { Razao: string | null; Bairro: string | null; Cidade: string | null; UF: string | null } | null
+}
+
 interface DetailData {
-  agenda: Agenda & {
-    hora_inicial?: string | null
-    hora_fim?: string | null
-    total_hora?: string | null
-    eficiencia?: number | null
-    obs_geral?: string | null
-    data_aud?: string | null
-  }
-  visitas: {
-    id_ad: number
-    id_clientes: number | null
-    status_atendimento: string | null
-    cliente?: { Razao: string | null; Bairro: string | null; Cidade: string | null; UF: string | null } | null
-  }[]
+  agenda: Agenda
+  visitas: Visita[]
   canEdit: boolean
+}
+
+interface NewClientRow {
+  codigo: string
+  // populated after lookup
+  id_clientes: number | null
+  Razao: string | null
+  Bairro: string | null
+  Cidade: string | null
+  UF: string | null
 }
 
 export function ListaAgendas() {
@@ -52,10 +57,16 @@ export function ListaAgendas() {
   const [filterTipo, setFilterTipo] = useState<'data' | 'mes_referencia'>('data')
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
-  const [mesReferencia, setMesReferencia] = useState(() => {
+  const [mesReferenciaInput, setMesReferenciaInput] = useState(() => {
     const d = new Date()
-    return `${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
+  const mesReferencia = useMemo(() => {
+    if (!mesReferenciaInput.includes('-')) return mesReferenciaInput
+    const [y, m] = mesReferenciaInput.split('-')
+    return `${m}-${y}`
+  }, [mesReferenciaInput])
+
   const [idGestor, setIdGestor] = useState('')
   const [idVendedor, setIdVendedor] = useState('')
 
@@ -63,8 +74,10 @@ export function ListaAgendas() {
   const [detail, setDetail] = useState<DetailData | null>(null)
   const [detailId, setDetailId] = useState<number | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
-  const [addingCodigo, setAddingCodigo] = useState('')
   const [keepIds, setKeepIds] = useState<Set<number>>(new Set())
+  const [newClients, setNewClients] = useState<NewClientRow[]>([
+    { codigo: '', id_clientes: null, Razao: null, Bairro: null, Cidade: null, UF: null },
+  ])
   const [savingDetail, setSavingDetail] = useState(false)
 
   const [deleting, setDeleting] = useState(false)
@@ -102,14 +115,13 @@ export function ListaAgendas() {
   async function openDetail(id: number) {
     setDetailId(id)
     setLoadingDetail(true)
-    setAddingCodigo('')
-    setKeepIds(new Set())
+    setNewClients([{ codigo: '', id_clientes: null, Razao: null, Bairro: null, Cidade: null, UF: null }])
     try {
       const r = await fetch(`/api/agenda/${id}`)
       if (!r.ok) throw new Error('Falha ao carregar detalhe')
       const d = await r.json()
       setDetail(d)
-      setKeepIds(new Set(d.visitas.map((v) => v.id_ad)))
+      setKeepIds(new Set(d.visitas.map((v: Visita) => v.id_ad)))
     } catch (err: any) {
       toast.error(err.message || 'Erro ao abrir detalhe')
     } finally {
@@ -126,26 +138,64 @@ export function ListaAgendas() {
     })
   }
 
+  async function lookupCliente(codigo: string, rowIndex: number) {
+    const cod = Number(codigo)
+    if (!cod || Number.isNaN(cod)) {
+      toast.error('Informe um código numérico válido.')
+      return
+    }
+    try {
+      const r = await fetch(`/api/clientes/search?codigo=${cod}`)
+      const d = await r.json()
+      if (r.ok && d.encontrado) {
+        const c = d.cliente
+        setNewClients((prev) => {
+          const next = [...prev]
+          next[rowIndex] = {
+            codigo: String(cod),
+            id_clientes: c.Codigo,
+            Razao: c.Razao,
+            Bairro: c.Bairro,
+            Cidade: c.Cidade,
+            UF: c.UF,
+          }
+          // Add new empty row if this is the last one
+          if (rowIndex === next.length - 1) {
+            next.push({ codigo: '', id_clientes: null, Razao: null, Bairro: null, Cidade: null, UF: null })
+          }
+          return next
+        })
+      } else {
+        toast.error(d.mensagem || `Código ${codigo} não localizado.`)
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao buscar cliente')
+    }
+  }
+
+  function removeNewClientRow(index: number) {
+    setNewClients((prev) => {
+      if (prev.length === 1) return [{ codigo: '', id_clientes: null, Razao: null, Bairro: null, Cidade: null, UF: null }]
+      return prev.filter((_, i) => i !== index)
+    })
+  }
+
   async function saveDetail() {
     if (!detail || !detailId) return
     setSavingDetail(true)
     try {
-      const addCodigos: number[] = []
-      if (addingCodigo) {
-        const cod = Number(addingCodigo)
-        if (!Number.isFinite(cod) || cod <= 0) {
-          toast.error('Código inválido.')
-          setSavingDetail(false)
-          return
-        }
-        addCodigos.push(cod)
-      }
+      const addCodigos = newClients
+        .filter((r) => r.id_clientes != null)
+        .map((r) => r.id_clientes as number)
+      // Deduplicate codes (in case user entered the same code twice)
+      const uniqueAddCodigos = Array.from(new Set(addCodigos))
+
       const r = await fetch(`/api/agenda/${detailId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           keep_visit_ids: Array.from(keepIds),
-          add_codigos: addCodigos,
+          add_codigos: uniqueAddCodigos,
         }),
       })
       const d = await r.json()
@@ -205,8 +255,7 @@ export function ListaAgendas() {
   return (
     <div className="p-4 lg:p-6 space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-foreground">Lista de Agendas</h2>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-sm text-muted-foreground">
           Consulte e gerencie as agendas cadastradas no sistema.
         </p>
       </div>
@@ -262,8 +311,8 @@ export function ListaAgendas() {
               <label className="text-xs text-muted-foreground">Mês referência</label>
               <input
                 type="month"
-                value={mesReferencia}
-                onChange={(e) => setMesReferencia(e.target.value)}
+                value={mesReferenciaInput}
+                onChange={(e) => setMesReferenciaInput(e.target.value)}
                 className="h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -444,6 +493,7 @@ export function ListaAgendas() {
               </div>
             ) : detail ? (
               <div className="p-5 space-y-5">
+                {/* Header fields */}
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <Field label="Nº Agenda" value={`#${detail.agenda.id_agenda}`} />
                   <Field label="Vendedor" value={detail.agenda.vendedor?.Nome ?? '—'} />
@@ -455,9 +505,10 @@ export function ListaAgendas() {
                   <Field label="Status" value={detail.agenda.status_atual ?? '—'} />
                 </div>
 
+                {/* Existing visits table */}
                 <div className="rounded-lg border border-border overflow-hidden">
                   <div className="bg-muted/50 px-3 py-2 text-xs font-medium text-muted-foreground uppercase">
-                    Visitas ({detail.visitas.length})
+                    Visitas existentes ({detail.visitas.length})
                   </div>
                   <div className="overflow-x-auto max-h-80">
                     <table className="w-full text-sm">
@@ -496,27 +547,96 @@ export function ListaAgendas() {
                   </div>
                 </div>
 
+                {/* Add new clients (multi-row) */}
                 {detail.canEdit && (
                   <div className="rounded-lg border border-dashed border-border p-4 space-y-3">
                     <div className="flex items-center gap-2">
                       <Plus className="w-4 h-4 text-primary" />
-                      <h4 className="text-sm font-semibold text-foreground">Adicionar novo cliente</h4>
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        value={addingCodigo}
-                        onChange={(e) => setAddingCodigo(e.target.value)}
-                        placeholder="Código do cliente"
-                        className="flex-1 h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
+                      <h4 className="text-sm font-semibold text-foreground">
+                        Adicionar novos clientes
+                      </h4>
                     </div>
                     <p className="text-xs text-muted-foreground">
+                      Digite o código e pressione Enter. Você pode adicionar vários clientes antes de salvar.
+                    </p>
+
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/30">
+                          <tr className="text-left text-xs uppercase text-muted-foreground">
+                            <th className="px-3 py-2 font-medium w-32">Código</th>
+                            <th className="px-3 py-2 font-medium">Razão</th>
+                            <th className="px-3 py-2 font-medium">Bairro</th>
+                            <th className="px-3 py-2 font-medium">Cidade</th>
+                            <th className="px-3 py-2 font-medium w-16">UF</th>
+                            <th className="px-3 py-2 font-medium w-16 text-center">Excluir</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {newClients.map((row, idx) => {
+                            const hasCliente = row.id_clientes != null
+                            return (
+                              <tr key={idx} className="hover:bg-muted/30">
+                                <td className="px-3 py-2">
+                                  {hasCliente ? (
+                                    <div className="h-9 px-2 flex items-center text-sm tabular-nums font-medium">
+                                      {row.id_clientes}
+                                    </div>
+                                  ) : (
+                                    <input
+                                      type="number"
+                                      inputMode="numeric"
+                                      value={row.codigo}
+                                      onChange={(e) => {
+                                        const val = e.target.value
+                                        setNewClients((prev) => {
+                                          const next = [...prev]
+                                          next[idx] = { ...next[idx], codigo: val }
+                                          return next
+                                        })
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault()
+                                          lookupCliente((e.target as HTMLInputElement).value, idx)
+                                        }
+                                      }}
+                                      placeholder="código"
+                                      autoFocus={idx === 0}
+                                      className="w-full h-9 px-2 rounded-md border border-border bg-background text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                                    />
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">{row.Razao ?? '—'}</td>
+                                <td className="px-3 py-2">{row.Bairro ?? '—'}</td>
+                                <td className="px-3 py-2">{row.Cidade ?? '—'}</td>
+                                <td className="px-3 py-2 text-center">{row.UF ?? '—'}</td>
+                                <td className="px-3 py-2 text-center">
+                                  {hasCliente && (
+                                    <button
+                                      onClick={() => removeNewClientRow(idx)}
+                                      className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition"
+                                      title="Remover"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      {newClients.filter((r) => r.id_clientes != null).length} novo(s) cliente(s) a adicionar.
                       Itens não marcados em "Manter" serão excluídos ao salvar.
                     </p>
                   </div>
                 )}
 
+                {/* Footer buttons */}
                 <div className="flex flex-wrap gap-3 justify-end pt-2 border-t border-border">
                   <button
                     onClick={() => {
@@ -535,7 +655,7 @@ export function ListaAgendas() {
                       className="h-11 px-6 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition flex items-center gap-2 disabled:opacity-60"
                     >
                       {savingDetail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      Salvar
+                      Salvar alterações
                     </button>
                   )}
                 </div>

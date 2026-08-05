@@ -22,11 +22,12 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData()
     const file = formData.get('file') as File | null
     const id_vendedor = formData.get('id_vendedor') as string | null
+    const id_gerente = formData.get('id_gerente') as string | null
     const placa = formData.get('placa') as string | null
 
-    if (!file || !id_vendedor || !placa) {
+    if (!file || !id_vendedor || !id_gerente || !placa) {
       return NextResponse.json(
-        { erro: 'Arquivo, vendedor e placa são obrigatórios.' },
+        { erro: 'Arquivo, gestor, vendedor e placa são obrigatórios.' },
         { status: 400 }
       )
     }
@@ -135,7 +136,7 @@ export async function POST(req: NextRequest) {
       const [y, m] = data_agenda.split('-')
       const mes_referencia = `${m}-${y}`
       const id = await createAgendaWithVisitas({
-        id_gerente: session.id_user,
+        id_gerente: Number(id_gerente),
         id_vendedor: Number(id_vendedor),
         data_agenda,
         placa,

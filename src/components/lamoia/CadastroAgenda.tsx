@@ -7,10 +7,8 @@ import {
 import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
 
-interface Vendedor {
-  id_user: number
-  Nome: string | null
-}
+interface Vendedor { id_user: number; Nome: string | null }
+interface Gestor { id_user: number; Nome: string | null }
 
 interface ClienteRow {
   id_clientes: number | null
@@ -20,12 +18,21 @@ interface ClienteRow {
   UF: string | null
 }
 
+interface SessionInfo {
+  Tipo: string | null
+  Nome: string | null
+  id_user: number
+}
+
 export function CadastroAgenda() {
   const [vendedores, setVendedores] = useState<Vendedor[]>([])
+  const [gestores, setGestores] = useState<Gestor[]>([])
+  const [session, setSession] = useState<SessionInfo | null>(null)
   const [loadingV, setLoadingV] = useState(true)
 
   // Shared fields
-  const [gestorNome, setGestorNome] = useState('')
+  const [idGestor, setIdGestor] = useState('')
+  const [gestorNomeReadonly, setGestorNomeReadonly] = useState('')
   const [idVendedor, setIdVendedor] = useState('')
   const [placa, setPlaca] = useState('')
 
@@ -34,8 +41,12 @@ export function CadastroAgenda() {
 
   // Manual fields
   const [dataAgenda, setDataAgenda] = useState('')
-  const [clienteRows, setClienteRows] = useState<ClienteRow[]>([{ id_clientes: null, Razao: null, Bairro: null, Cidade: null, UF: null }])
-  const [currentCodigo, setCurrentCodigo] = useState('')
+  const [clienteRows, setClienteRows] = useState<ClienteRow[]>([
+    { id_clientes: null, Razao: null, Bairro: null, Cidade: null, UF: null },
+  ])
+  // Per-row input value (the text the user is currently typing before pressing Enter)
+  const [rowInputs, setRowInputs] = useState<Record<number, string>>({})
+  const [lookingUp, setLookingUp] = useState<Record<number, boolean>>({})
 
   // Import fields
   const [importFile, setImportFile] = useState<File | null>(null)
@@ -43,24 +54,38 @@ export function CadastroAgenda() {
   const [importing, setImporting] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    fetch('/api/users/vendedores')
-      .then((r) => r.json())
-      .then((d) => setVendedores(d.vendedores ?? []))
-      .catch(() => toast.error('Erro ao carregar vendedores'))
-      .finally(() => setLoadingV(false))
+  // Is the logged-in user an administrative type? (Admin Senior / Admin Junior)
+  const isAdmin = session?.Tipo === 'Admin Senior' || session?.Tipo === 'Admin Junior'
 
-    fetch('/api/auth/session')
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.autenticado) setGestorNome(d.usuario?.Nome ?? '')
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/auth/session').then((r) => r.json()),
+      fetch('/api/users/vendedores').then((r) => r.json()),
+      fetch('/api/users/gestores').then((r) => r.json()),
+    ])
+      .then(([sess, vend, gest]) => {
+        if (sess.autenticado) {
+          setSession(sess.usuario)
+          // If Comercial (gestor), prefill gestor with their own id
+          if (sess.usuario.Tipo === 'Comercial') {
+            setIdGestor(String(sess.usuario.id_user))
+            setGestorNomeReadonly(sess.usuario.Nome ?? '')
+          }
+        }
+        setVendedores(vend.vendedores ?? [])
+        setGestores(gest.gestores ?? [])
       })
-      .catch(() => {})
+      .catch(() => toast.error('Erro ao carregar dados iniciais'))
+      .finally(() => setLoadingV(false))
   }, [])
 
   async function lookupCliente(codigo: string, rowIndex: number) {
     const cod = Number(codigo)
-    if (!cod || Number.isNaN(cod)) return
+    if (!cod || Number.isNaN(cod)) {
+      toast.error('Informe um código numérico válido.')
+      return
+    }
+    setLookingUp((s) => ({ ...s, [rowIndex]: true }))
     try {
       const r = await fetch(`/api/clientes/search?codigo=${cod}`)
       const d = await r.json()
@@ -75,33 +100,56 @@ export function CadastroAgenda() {
             Cidade: c.Cidade,
             UF: c.UF,
           }
-          // add a new empty row if this is the last one
+          // Add a new empty row if this is the last one
           if (rowIndex === next.length - 1) {
             next.push({ id_clientes: null, Razao: null, Bairro: null, Cidade: null, UF: null })
           }
           return next
         })
-        setCurrentCodigo('')
+        setRowInputs((s) => {
+          const next = { ...s }
+          delete next[rowIndex]
+          return next
+        })
+        // Focus next row's input automatically
+        setTimeout(() => {
+          const nextInput = document.querySelector<HTMLInputElement>(
+            `input[data-row="${rowIndex + 1}"]`
+          )
+          if (nextInput) nextInput.focus()
+        }, 50)
       } else {
         toast.error(d.mensagem || `Código ${codigo} não localizado.`)
       }
     } catch (err: any) {
       toast.error(err.message || 'Erro ao buscar cliente')
+    } finally {
+      setLookingUp((s) => ({ ...s, [rowIndex]: false }))
     }
   }
 
   function removeRow(index: number) {
     if (clienteRows.length === 1) {
       setClienteRows([{ id_clientes: null, Razao: null, Bairro: null, Cidade: null, UF: null }])
+      setRowInputs({})
       return
     }
     if (!confirm('Excluir este item da lista?')) return
     setClienteRows((prev) => prev.filter((_, i) => i !== index))
+    setRowInputs((prev) => {
+      const next: Record<number, string> = {}
+      Object.entries(prev).forEach(([k, v]) => {
+        const idx = Number(k)
+        if (idx < index) next[idx] = v
+        else if (idx > index) next[idx - 1] = v
+      })
+      return next
+    })
   }
 
   function selectMode(m: 'manual' | 'import') {
     // Validate shared fields before allowing mode selection
-    if (!idVendedor || !placa) {
+    if (!idGestor || !idVendedor || !placa) {
       toast.error('Preencha Gestor, Vendedor e Placa antes de escolher o tipo de cadastro.')
       return
     }
@@ -124,6 +172,7 @@ export function CadastroAgenda() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          id_gerente: Number(idGestor),
           id_vendedor: Number(idVendedor),
           data_agenda: dataAgenda,
           placa,
@@ -136,7 +185,7 @@ export function CadastroAgenda() {
         return
       }
       toast.success(`Agenda #${d.id_agenda} criada com ${visitas.length} visita(s).`)
-      handleClear()
+      resetForm()
     } catch (err: any) {
       toast.error(err.message || 'Erro ao salvar')
     } finally {
@@ -204,6 +253,7 @@ export function CadastroAgenda() {
         return
       }
       formData.append('file', importFile)
+      formData.append('id_gerente', idGestor)
       formData.append('id_vendedor', idVendedor)
       formData.append('placa', placa)
 
@@ -214,7 +264,7 @@ export function CadastroAgenda() {
         return
       }
       toast.success(`Importação concluída! ${d.total_agendas} agenda(s) • ${d.total_visitas} visita(s).`)
-      handleClear()
+      resetForm()
     } catch (err: any) {
       toast.error(err.message || 'Erro ao importar')
     } finally {
@@ -222,24 +272,39 @@ export function CadastroAgenda() {
     }
   }
 
-  function handleClear() {
-    if (mode === 'manual' && clienteRows.some((r) => r.id_clientes != null)) {
-      if (!confirm('Cancelar? Todas as alterações não salvas serão perdidas.')) return
-    }
+  /**
+   * Reset form state after a successful save/import.
+   * Does NOT prompt the user — this is a clean reset, not a cancellation.
+   */
+  function resetForm() {
     setMode(null)
     setIdVendedor('')
     setPlaca('')
     setDataAgenda('')
     setClienteRows([{ id_clientes: null, Razao: null, Bairro: null, Cidade: null, UF: null }])
+    setRowInputs({})
     setImportFile(null)
     setImportPreview([])
+    // Keep idGestor (since Comercial is always their own; Admin can keep last selection)
+  }
+
+  /**
+   * Cancel button handler — prompts the user before discarding unsaved changes.
+   */
+  function handleCancel() {
+    if (mode === 'manual' && clienteRows.some((r) => r.id_clientes != null)) {
+      if (!confirm('Cancelar? Todas as alterações não salvas serão perdidas.')) return
+    }
+    if (mode === 'import' && importPreview.length > 0) {
+      if (!confirm('Cancelar? Todas as alterações não salvas serão perdidas.')) return
+    }
+    resetForm()
   }
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-foreground">Cadastro de Agenda</h2>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-sm text-muted-foreground">
           Cadastre uma nova agenda manualmente ou importe uma planilha Excel.
         </p>
       </div>
@@ -247,17 +312,38 @@ export function CadastroAgenda() {
       {/* Shared header */}
       <div className="rounded-xl border border-border bg-card p-5 card-shadow space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Gestor field — dynamic based on user Tipo */}
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground flex items-center gap-1">
               <User className="w-3 h-3" /> Gestor
             </label>
-            <input
-              type="text"
-              value={gestorNome}
-              disabled
-              className="w-full h-10 px-3 rounded-lg border border-border bg-muted/40 text-sm"
-            />
+            {isAdmin ? (
+              // Admin user → dropdown with all Comercial (gestores)
+              <select
+                value={idGestor}
+                onChange={(e) => setIdGestor(e.target.value)}
+                disabled={loadingV || mode !== null}
+                className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+              >
+                <option value="">{loadingV ? 'Carregando...' : 'Selecione o gestor...'}</option>
+                {gestores.map((g) => (
+                  <option key={g.id_user} value={g.id_user}>
+                    {g.Nome ?? `#${g.id_user}`}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              // Comercial user → readonly with their own name
+              <input
+                type="text"
+                value={gestorNomeReadonly}
+                disabled
+                className="w-full h-10 px-3 rounded-lg border border-border bg-muted/40 text-sm"
+              />
+            )}
           </div>
+
+          {/* Vendedor field — dropdown with all Users (vendedores) */}
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Vendedor</label>
             <select
@@ -266,7 +352,7 @@ export function CadastroAgenda() {
               disabled={loadingV || mode !== null}
               className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
             >
-              <option value="">{loadingV ? 'Carregando...' : 'Selecione...'}</option>
+              <option value="">{loadingV ? 'Carregando...' : 'Selecione o vendedor...'}</option>
               {vendedores.map((v) => (
                 <option key={v.id_user} value={v.id_user}>
                   {v.Nome ?? `#${v.id_user}`}
@@ -274,6 +360,7 @@ export function CadastroAgenda() {
               ))}
             </select>
           </div>
+
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground flex items-center gap-1">
               <Truck className="w-3 h-3" /> Placa
@@ -347,40 +434,61 @@ export function CadastroAgenda() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {clienteRows.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-muted/30">
-                      <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          value={row.id_clientes ?? ''}
-                          onChange={(e) => setCurrentCodigo(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              lookupCliente((e.target as HTMLInputElement).value, idx)
-                            }
-                          }}
-                          placeholder="—"
-                          className="w-full h-9 px-2 rounded-md border border-border bg-background text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      </td>
-                      <td className="px-3 py-3">{row.Razao ?? '—'}</td>
-                      <td className="px-3 py-3">{row.Bairro ?? '—'}</td>
-                      <td className="px-3 py-3">{row.Cidade ?? '—'}</td>
-                      <td className="px-3 py-3 text-center">{row.UF ?? '—'}</td>
-                      <td className="px-3 py-2 text-center">
-                        {row.id_clientes != null && (
-                          <button
-                            onClick={() => removeRow(idx)}
-                            className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition"
-                            title="Excluir"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {clienteRows.map((row, idx) => {
+                    const hasCliente = row.id_clientes != null
+                    const isLookingUp = lookingUp[idx]
+                    return (
+                      <tr key={idx} className="hover:bg-muted/30">
+                        <td className="px-3 py-2">
+                          {hasCliente ? (
+                            <div className="h-9 px-2 flex items-center text-sm tabular-nums font-medium">
+                              {row.id_clientes}
+                            </div>
+                          ) : (
+                            <div className="relative">
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                data-row={idx}
+                                value={rowInputs[idx] ?? ''}
+                                onChange={(e) =>
+                                  setRowInputs((s) => ({ ...s, [idx]: e.target.value }))
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    lookupCliente((e.target as HTMLInputElement).value, idx)
+                                  }
+                                }}
+                                placeholder="código"
+                                autoFocus={idx === 0}
+                                disabled={isLookingUp}
+                                className="w-full h-9 px-2 rounded-md border border-border bg-background text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                              />
+                              {isLookingUp && (
+                                <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 animate-spin text-muted-foreground" />
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-3">{row.Razao ?? '—'}</td>
+                        <td className="px-3 py-3">{row.Bairro ?? '—'}</td>
+                        <td className="px-3 py-3">{row.Cidade ?? '—'}</td>
+                        <td className="px-3 py-3 text-center">{row.UF ?? '—'}</td>
+                        <td className="px-3 py-2 text-center">
+                          {hasCliente && (
+                            <button
+                              onClick={() => removeRow(idx)}
+                              className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition"
+                              title="Excluir"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -388,7 +496,7 @@ export function CadastroAgenda() {
 
           <div className="flex flex-wrap gap-3 justify-end">
             <button
-              onClick={handleClear}
+              onClick={handleCancel}
               disabled={saving}
               className="h-11 px-6 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-muted transition flex items-center gap-2"
             >
@@ -475,7 +583,7 @@ export function CadastroAgenda() {
 
           <div className="flex flex-wrap gap-3 justify-end">
             <button
-              onClick={handleClear}
+              onClick={handleCancel}
               disabled={importing}
               className="h-11 px-6 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-muted transition flex items-center gap-2"
             >

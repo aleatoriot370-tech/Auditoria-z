@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { CalendarDays, Filter, RefreshCw } from 'lucide-react'
+import { Filter, RefreshCw, TrendingUp } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   BarChart, Bar, Cell, Legend,
@@ -18,6 +18,7 @@ interface DashboardData {
     auditorias_realizadas: number
     visitas_agendadas: number
     visitas_realizadas: number
+    eficiencia_media?: number
   }
   daily: { data: string; agendas: number; auditorias: number }[]
   statusCounts: { status: string; total: number }[]
@@ -29,46 +30,62 @@ interface DashboardProps {
   userName: string | null
 }
 
+/** Convert input[type=month] "YYYY-MM" → DB mes_referencia "MM-YYYY". */
+function toMesReferencia(ym: string): string {
+  // ym format: "2026-08" → "08-2026"
+  if (!ym || !ym.includes('-')) return ym
+  const [y, m] = ym.split('-')
+  return `${m}-${y}`
+}
+
+/** Convert DB mes_referencia "MM-YYYY" → input[type=month] "YYYY-MM". */
+function toMonthInput(mr: string): string {
+  if (!mr || !mr.includes('-')) return mr
+  const [m, y] = mr.split('-')
+  return `${y}-${m}`
+}
+
 export function Dashboard({ isComercial, userName }: DashboardProps) {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<DashboardData | null>(null)
 
   // filters
   const [filterTipo, setFilterTipo] = useState<'mes' | 'periodo'>('mes')
-  const [mesReferencia, setMesReferencia] = useState(() => {
+  // Input value in YYYY-MM format (HTML month input).
+  // Internal state stores MM-YYYY (DB format) for direct use in API requests.
+  const [mesReferenciaInput, setMesReferenciaInput] = useState(() => {
     const d = new Date()
-    return `${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
+  const mesReferencia = toMesReferencia(mesReferenciaInput)
+
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
+
   const [idGestor, setIdGestor] = useState('')
   const [idVendedor, setIdVendedor] = useState('')
+
+  // Dropdown options
+  const [gestores, setGestores] = useState<{ id_user: number; Nome: string | null }[]>([])
   const [vendedores, setVendedores] = useState<{ id_user: number; Nome: string | null }[]>([])
 
-  async function loadVendedores() {
-    try {
-      const params = new URLSearchParams()
-      if (filterTipo === 'mes') params.set('mes_referencia', mesReferencia)
-      else {
-        if (dataInicio) params.set('data_inicio', dataInicio)
-        if (dataFim) params.set('data_fim', dataFim)
-      }
-      const r = await fetch('/api/users/gestores?' + params.toString())
-      if (r.ok) {
-        const d = await r.json()
-        setVendedores(d.vendedores ?? [])
-      }
-    } catch (e) {
-      console.error(e)
-    }
-  }
+  // Load dropdown options once on mount — independent of dashboard data.
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/users/gestores').then((r) => r.json()).catch(() => ({ gestores: [] })),
+      fetch('/api/users/vendedores').then((r) => r.json()).catch(() => ({ vendedores: [] })),
+    ]).then(([g, v]) => {
+      setGestores(g.gestores ?? [])
+      setVendedores(v.vendedores ?? [])
+    })
+  }, [])
 
   async function loadDashboard() {
     setLoading(true)
     try {
       const params = new URLSearchParams()
       if (filterTipo === 'mes') {
-        params.set('mes_referencia', mesReferencia)
+        params.set('mes_referencia', mesReferencia) // already in MM-YYYY format
       } else {
         if (dataInicio) params.set('data_inicio', dataInicio)
         if (dataFim) params.set('data_fim', dataFim)
@@ -87,13 +104,10 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
     }
   }
 
+  // Reload dashboard when filters change
   useEffect(() => {
     loadDashboard()
-  }, [])
-
-  useEffect(() => {
-    loadVendedores()
-  }, [filterTipo, mesReferencia, dataInicio, dataFim])
+  }, [filterTipo, mesReferencia, dataInicio, dataFim, idGestor, idVendedor])
 
   const dailyChartData = useMemo(() => {
     if (!data?.daily) return []
@@ -111,6 +125,13 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
     }))
   }, [data])
 
+  const eficienciaCard = useMemo(() => {
+    const agendadas = data?.stats.visitas_agendadas ?? 0
+    const realizadas = data?.stats.visitas_realizadas ?? 0
+    if (agendadas === 0) return 0
+    return (realizadas / agendadas) * 100
+  }, [data])
+
   const statusColors: Record<string, string> = {
     'Realizado': '#16a34a',
     'Cancelado': '#dc2626',
@@ -120,10 +141,9 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
-      {/* Title */}
+      {/* Subtitle */}
       <div>
-        <h2 className="text-2xl font-bold text-foreground">Dashboard das Auditorias</h2>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-sm text-muted-foreground">
           {isComercial
             ? `Visão filtrada pelo seu gestor: ${userName ?? ''}`
             : 'Indicadores de desempenho geral das equipes comerciais.'}
@@ -167,8 +187,8 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
               <label className="text-xs text-muted-foreground">Mês referência</label>
               <input
                 type="month"
-                value={mesReferencia}
-                onChange={(e) => setMesReferencia(e.target.value)}
+                value={mesReferenciaInput}
+                onChange={(e) => setMesReferenciaInput(e.target.value)}
                 className="h-10 px-3 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -204,6 +224,11 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
                 className="h-10 px-3 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-40"
               >
                 <option value="">Todos</option>
+                {gestores.map((g) => (
+                  <option key={g.id_user} value={g.id_user}>
+                    {g.Nome ?? `#${g.id_user}`}
+                  </option>
+                ))}
               </select>
             </div>
           )}
@@ -235,15 +260,15 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
         </div>
       </div>
 
-      {/* Stat cards */}
+      {/* Stat cards (5 cards) */}
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[0, 1, 2, 3].map((i) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {[0, 1, 2, 3, 4].map((i) => (
             <div key={i} className="h-28 rounded-xl bg-muted animate-pulse" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard
             label="Total de Agendas"
             value={data?.stats.total_agendas ?? 0}
@@ -267,6 +292,13 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
             value={data?.stats.visitas_realizadas ?? 0}
             icon={CheckCircle2}
             accent="accent"
+          />
+          <StatCard
+            label="Eficiência"
+            value={`${eficienciaCard.toFixed(1)}%`}
+            icon={TrendingUp}
+            accent="accent"
+            hint="(Realizadas / Agendadas) × 100"
           />
         </div>
       )}

@@ -5,6 +5,10 @@ import { listActiveUsersByTipos } from '@/lib/datasource'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+/**
+ * Lista VENDEDORES (Tipo = 'Users').
+ * Usado no dropdown "Vendedor" da tela de Cadastro de Agenda.
+ */
 export async function GET() {
   const session = await getSession()
   if (!session) {
@@ -12,8 +16,7 @@ export async function GET() {
   }
 
   try {
-    // Active Comercial users for vendedor dropdown
-    const users = await listActiveUsersByTipos(['Comercial'])
+    const users = await listActiveUsersByTipos(['Users'])
     return NextResponse.json({
       vendedores: users.map((u) => ({ id_user: u.id_user, Nome: u.Nome })),
     })

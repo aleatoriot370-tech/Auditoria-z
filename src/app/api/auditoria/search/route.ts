@@ -37,10 +37,15 @@ export async function GET(req: NextRequest) {
     const realizado = visitas.filter((v) => v.status_atendimento === 'Realizado').length
     const cancelado = visitas.filter((v) => v.status_atendimento === 'Cancelado').length
 
+    // AUDITORIA RULE:
+    //   - Today or future date → BLOCKED (visits haven't happened yet, cannot audit)
+    //   - Past date → ALLOWED (visits should have happened, can be audited)
+    //   - Already finalized → BLOCKED (read-only view)
     const today = new Date().toISOString().slice(0, 10)
-    const isPastOrToday = (agenda.data_agenda ?? '').slice(0, 10) <= today
+    const agendaDate = (agenda.data_agenda ?? '').slice(0, 10)
     const isFinalized = agenda.status_atual === 'Finalizado'
-    const readOnly = isFinalized || isPastOrToday
+    const isTodayOrFuture = agendaDate >= today  // ← today or future
+    const readOnly = isFinalized || isTodayOrFuture
 
     return NextResponse.json({
       encontrado: true,
@@ -50,8 +55,8 @@ export async function GET(req: NextRequest) {
       readOnly,
       readOnlyReason: isFinalized
         ? 'Agenda já auditada (somente visualização).'
-        : isPastOrToday
-        ? 'Data da agenda já passou ou é hoje (somente visualização).'
+        : isTodayOrFuture
+        ? 'A auditoria só pode ser realizada após a data da agenda (somente visualização).'
         : null,
     })
   } catch (err: any) {

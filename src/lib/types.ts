@@ -54,6 +54,16 @@ export interface AgendaDiaria {
   longitude: string | null
   // joined fields (optional - returned by some queries)
   cliente?: Cliente | null
+  fotos_vis?: FotoVis[]
+}
+
+export interface FotoVis {
+  id_foto: number
+  created_at?: string | null
+  id_vis: number | null
+  Nome_Foto: string | null
+  Tipo: string | null  // 'Fachada' | 'Antes' | 'Depois'
+  Loc_Foto: string | null  // URL or path to the photo
 }
 
 export interface AgendaWithJoins extends Agenda {

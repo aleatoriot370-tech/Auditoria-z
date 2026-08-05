@@ -23,6 +23,14 @@ interface Visita {
   data_hora_atendimento?: string | null
 }
 
+interface FotoVis {
+  id_foto: number
+  id_vis: number | null
+  Nome_Foto: string | null
+  Tipo: string | null
+  Loc_Foto: string | null
+}
+
 interface Agenda {
   id_agenda: number
   placa: string | null
@@ -182,8 +190,7 @@ export function Auditoria() {
   return (
     <div className="p-4 lg:p-6 space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-foreground">Auditoria</h2>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-sm text-muted-foreground">
           Busque a agenda por data e vendedor para auditar as visitas realizadas.
         </p>
       </div>
@@ -464,28 +471,56 @@ function Card({ label, value, accent }: { label: string; value: string; accent?:
 
 function ViewMapButton({ visita }: { visita: Visita }) {
   const [open, setOpen] = useState(false)
+  const [fotos, setFotos] = useState<FotoVis[]>([])
+  const [loadingFotos, setLoadingFotos] = useState(false)
+  const [lightbox, setLightbox] = useState<FotoVis | null>(null)
+
   const lat = visita.latitude
   const lng = visita.longitude
   const hasCoords = lat && lng
 
+  async function openPopup() {
+    if (!hasCoords) {
+      toast.info('Sem coordenadas cadastradas para esta visita.')
+      return
+    }
+    setOpen(true)
+    // Fetch photos from fotos_vis table
+    if (visita.id_ad) {
+      setLoadingFotos(true)
+      try {
+        const r = await fetch(`/api/fotos/${visita.id_ad}`)
+        if (r.ok) {
+          const d = await r.json()
+          setFotos(d.fotos ?? [])
+        }
+      } catch (err) {
+        console.error(err)
+      } finally {
+        setLoadingFotos(false)
+      }
+    }
+  }
+
+  // Group photos by Tipo
+  const fotosByTipo: Record<string, FotoVis[]> = { Fachada: [], Antes: [], Depois: [] }
+  for (const f of fotos) {
+    const t = f.Tipo ?? 'Outros'
+    if (!fotosByTipo[t]) fotosByTipo[t] = []
+    fotosByTipo[t].push(f)
+  }
+
   return (
     <>
       <button
-        onClick={() => {
-          if (!hasCoords) {
-            toast.info('Sem coordenadas cadastradas para esta visita.')
-            return
-          }
-          setOpen(true)
-        }}
-        disabled={!hasCoords}
-        className="p-2 rounded-md hover:bg-muted transition disabled:opacity-40"
-        title={hasCoords ? 'Ver mapa e fotos' : 'Sem coordenadas'}
+        onClick={openPopup}
+        className="p-2 rounded-md hover:bg-muted transition"
+        title="Ver mapa e fotos"
       >
         <MapPin className="w-4 h-4 text-primary" />
       </button>
 
-      {open && hasCoords && (
+      {open && (
         <div
           className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
           onClick={() => setOpen(false)}
@@ -497,40 +532,96 @@ function ViewMapButton({ visita }: { visita: Visita }) {
             <div className="p-4 border-b border-border flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-foreground">{visita.cliente?.Razao ?? `Cliente #${visita.id_clientes}`}</h3>
-                <p className="text-xs text-muted-foreground">
-                  Lat: {lat} • Lng: {lng}
-                </p>
+                {hasCoords && (
+                  <p className="text-xs text-muted-foreground">
+                    Lat: {lat} • Lng: {lng}
+                  </p>
+                )}
               </div>
               <button onClick={() => setOpen(false)} className="p-2 hover:bg-muted rounded-md">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-4 space-y-4">
-              <div className="rounded-lg overflow-hidden border border-border">
-                <iframe
-                  title="map"
-                  width="100%"
-                  height="320"
-                  style={{ border: 0 }}
-                  loading="lazy"
-                  allowFullScreen
-                  referrerPolicy="no-referrer-when-downgrade"
-                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lng) - 0.01}%2C${Number(lat) - 0.01}%2C${Number(lng) + 0.01}%2C${Number(lat) + 0.01}&layer=mapnik&marker=${lat}%2C${lng}`}
-                />
-              </div>
+              {hasCoords && (
+                <div className="rounded-lg overflow-hidden border border-border">
+                  <iframe
+                    title="map"
+                    width="100%"
+                    height="280"
+                    style={{ border: 0 }}
+                    loading="lazy"
+                    allowFullScreen
+                    referrerPolicy="no-referrer-when-downgrade"
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lng) - 0.01}%2C${Number(lat) - 0.01}%2C${Number(lng) + 0.01}%2C${Number(lat) + 0.01}&layer=mapnik&marker=${lat}%2C${lng}`}
+                  />
+                </div>
+              )}
+
               <div>
                 <h4 className="text-sm font-semibold text-foreground mb-2">Galeria de fotos</h4>
-                <div className="grid grid-cols-3 gap-3">
-                  {['Fachada', 'Antes', 'Depois'].map((tipo) => (
-                    <div key={tipo} className="rounded-lg border border-border bg-muted/30 p-6 text-center">
-                      <div className="text-xs text-muted-foreground mb-1">{tipo}</div>
-                      <div className="text-xs text-muted-foreground/60">Sem foto cadastrada</div>
-                    </div>
-                  ))}
-                </div>
+                {loadingFotos ? (
+                  <div className="text-sm text-muted-foreground">Carregando fotos...</div>
+                ) : fotos.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">Nenhuma foto cadastrada para esta visita.</div>
+                ) : (
+                  <div className="space-y-3">
+                    {['Fachada', 'Antes', 'Depois'].map((tipo) => {
+                      const list = fotosByTipo[tipo] ?? []
+                      return (
+                        <div key={tipo}>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">{tipo} ({list.length})</div>
+                          {list.length === 0 ? (
+                            <div className="text-xs text-muted-foreground/60">—</div>
+                          ) : (
+                            <div className="grid grid-cols-3 gap-2">
+                              {list.map((f) => (
+                                <button
+                                  key={f.id_foto}
+                                  onClick={() => setLightbox(f)}
+                                  className="relative aspect-square rounded-lg overflow-hidden border border-border hover:border-primary transition group"
+                                >
+                                  <img
+                                    src={f.Loc_Foto ?? ''}
+                                    alt={f.Nome_Foto ?? `Foto ${f.id_foto}`}
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                    onError={(e) => {
+                                      ;(e.target as HTMLImageElement).style.display = 'none'
+                                    }}
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white"
+            onClick={() => setLightbox(null)}
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={lightbox.Loc_Foto ?? ''}
+            alt={lightbox.Nome_Foto ?? `Foto ${lightbox.id_foto}`}
+            className="max-w-full max-h-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </>

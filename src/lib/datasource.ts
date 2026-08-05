@@ -12,6 +12,7 @@ import type {
   DailyPoint,
   StatusCount,
   AuditoriaRow,
+  FotoVis,
 } from './types'
 
 /**
@@ -130,8 +131,6 @@ export async function listActiveUsersByTipos(tipos: string[]): Promise<User[]> {
   if (isSupabaseEnabled()) {
     const { getSupabaseAdmin } = await import('./supabase')
     const sb = getSupabaseAdmin()
-    // ⚠️ Use a case-insensitive match (ilike) and trim whitespace in-app to also
-    // catch rows with Status='A' / 'a ' that the original `.eq('Status', 'a')` would miss.
     const { data, error } = await sb
       .from('Users')
       .select('*')
@@ -142,7 +141,7 @@ export async function listActiveUsersByTipos(tipos: string[]): Promise<User[]> {
       (u) => (u.Status ?? '').trim().toLowerCase() === 'a'
     )
   }
-  // Prisma (sandbox) — SQLite case-insensitive by default for =, but normalize anyway
+  // Prisma (sandbox)
   const rows = (await db.users.findMany({
     where: { Status: 'a', Tipo: { in: tipos } },
     orderBy: { Nome: 'asc' },
@@ -272,13 +271,16 @@ export async function getAgendaById(id_agenda: number): Promise<AgendaWithJoins 
   if (isSupabaseEnabled()) {
     const { getSupabaseAdmin } = await import('./supabase')
     const sb = getSupabaseAdmin()
+    // ⚠️ `auditor:Users` is NOT embedded because ag_agenda has 2 FKs to Users
+    // (id_gerente + id_vendedor) → Supabase can't disambiguate without a FK hint.
+    // id_auditor is double precision (not a real FK in the original schema), so we
+    // skip the auditor join here. If needed later, fetch it via a separate query.
     const { data, error } = await sb
       .from('ag_agenda')
       .select(`
         *,
         gerente:Users!ag_agenda_id_gerente_fkey(id_user,Nome),
-        vendedor:Users!ag_agenda_id_vendedor_fkey(id_user,Nome),
-        auditor:Users(id_user,Nome)
+        vendedor:Users!ag_agenda_id_vendedor_fkey(id_user,Nome)
       `)
       .eq('id_agenda', id_agenda)
       .maybeSingle()
@@ -308,7 +310,11 @@ export async function getVisitasByAgendaId(id_a: number): Promise<AgendaDiaria[]
     const sb = getSupabaseAdmin()
     const { data, error } = await sb
       .from('ag_agenda_diaria')
-      .select(`*, cliente:Clientes(*)`)
+      .select(`
+        *,
+        cliente:Clientes(*),
+        fotos_vis:fotos_vis(*)
+      `)
       .eq('id_a', id_a)
       .order('id_ad')
     if (error) throw error
@@ -318,6 +324,7 @@ export async function getVisitasByAgendaId(id_a: number): Promise<AgendaDiaria[]
     where: { id_a },
     include: {
       Clientes: { select: { Codigo: true, Razao: true, Bairro: true, Cidade: true, UF: true } },
+      fotos_vis: true,
     },
     orderBy: { id_ad: 'asc' },
   })
@@ -331,33 +338,57 @@ export async function getVisitasByAgendaId(id_a: number): Promise<AgendaDiaria[]
   })) as unknown as AgendaDiaria[]
 }
 
+/** Fetch photos by visita (ag_agenda_diaria.id_ad). Used by auditoria popup. */
+export async function getFotosByVisitaId(id_vis: number): Promise<FotoVis[]> {
+  if (isSupabaseEnabled()) {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const sb = getSupabaseAdmin()
+    const { data, error } = await sb
+      .from('fotos_vis')
+      .select('*')
+      .eq('id_vis', id_vis)
+      .order('Tipo')
+    if (error) throw error
+    return (data as FotoVis[]) ?? []
+  }
+  const rows = await db.fotos_vis.findMany({
+    where: { id_vis },
+    orderBy: { Tipo: 'asc' },
+  })
+  return rows as unknown as FotoVis[]
+}
+
 export async function findAgendaByDateAndVendedor(data_agenda: string, id_vendedor: number): Promise<AgendaWithJoins | null> {
   if (isSupabaseEnabled()) {
     const { getSupabaseAdmin } = await import('./supabase')
     const sb = getSupabaseAdmin()
     const start = `${data_agenda}T00:00:00`
     const end = `${data_agenda}T23:59:59`
+    // ⚠️ Use `.limit(1)` to avoid PGRST116 when the same vendedor has multiple
+    // agendas on the same date (maybeSingle() requires 0 or 1 row exactly).
+    // We pick the most recent one (id_agenda DESC) as a deterministic choice.
     const { data, error } = await sb
       .from('ag_agenda')
       .select(`
         *,
         gerente:Users!ag_agenda_id_gerente_fkey(id_user,Nome),
-        vendedor:Users!ag_agenda_id_vendedor_fkey(id_user,Nome),
-        auditor:Users(id_user,Nome)
+        vendedor:Users!ag_agenda_id_vendedor_fkey(id_user,Nome)
       `)
       .eq('id_vendedor', id_vendedor)
       .gte('data_agenda', start)
       .lte('data_agenda', end)
-      .maybeSingle()
+      .order('id_agenda', { ascending: false })
+      .limit(1)
     if (error) throw error
-    if (!data) return null
-    return normalizeAgenda(data as any)
+    if (!data || data.length === 0) return null
+    return normalizeAgenda(data[0] as any)
   }
   // Prisma - SQLite stores DateTime, so compare date range
   const start = new Date(`${data_agenda}T00:00:00`)
   const end = new Date(`${data_agenda}T23:59:59`)
   const row = await db.ag_agenda.findFirst({
     where: { id_vendedor, data_agenda: { gte: start, lte: end } },
+    orderBy: { id_agenda: 'desc' },
     include: {
       Users_UsersToag_agenda_id_gerente: { select: { id_user: true, Nome: true } },
       Users_UsersToag_agenda_id_vendedor: { select: { id_user: true, Nome: true } },
@@ -372,13 +403,44 @@ export async function findAgendaByDateAndVendedor(data_agenda: string, id_vended
   })
 }
 
-/** Normalize date fields across Prisma (Date) and Supabase (string) into ISO strings. */
+/**
+ * Convert "HH:MM" → Date representing 1970-01-01 HH:MM:00 (UTC).
+ * Used when saving to `timestamp without time zone` columns.
+ */
+function timeToDate(time: string): Date {
+  const [h, m] = time.split(':').map(Number)
+  return new Date(Date.UTC(1970, 0, 1, h || 0, m || 0, 0, 0))
+}
+
+/**
+ * Convert a Date or ISO string → "HH:MM" string.
+ * Used when reading from `timestamp without time zone` columns.
+ */
+function dateToTime(value: any): string | null {
+  if (!value) return null
+  // Already a "HH:MM" string (legacy or pre-migration)
+  if (typeof value === 'string' && /^\d{2}:\d{2}$/.test(value)) return value
+  // Date or ISO string
+  try {
+    const d = value instanceof Date ? value : new Date(value)
+    if (Number.isNaN(d.getTime())) return null
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+  } catch {
+    return null
+  }
+}
+
+/** Normalize date/time fields across Prisma (Date) and Supabase (string) into ISO strings. */
 function normalizeAgenda(row: any): AgendaWithJoins {
   return {
     ...row,
     data_criacao: row.data_criacao instanceof Date ? row.data_criacao.toISOString() : row.data_criacao,
     data_agenda: row.data_agenda instanceof Date ? row.data_agenda.toISOString().slice(0, 10) : row.data_agenda,
     data_aud: row.data_aud instanceof Date ? row.data_aud.toISOString().slice(0, 10) : row.data_aud,
+    // hora_inicial / hora_fim: timestamp columns → "HH:MM" for display
+    hora_inicial: dateToTime(row.hora_inicial),
+    hora_fim: dateToTime(row.hora_fim),
+    // total_hora remains as text "HH:MM"
   } as AgendaWithJoins
 }
 
@@ -393,14 +455,18 @@ export async function saveAuditoria(payload: {
   id_auditor: number
   visitas: { id_ad: number; status_atendimento: string; observacao?: string }[]
 }): Promise<void> {
+  // Convert "HH:MM" → Date for timestamp columns
+  const horaInicialDate = timeToDate(payload.hora_inicial)
+  const horaFimDate = timeToDate(payload.hora_fim)
+
   if (isSupabaseEnabled()) {
     const { getSupabaseAdmin } = await import('./supabase')
     const sb = getSupabaseAdmin()
     const { error: e1 } = await sb
       .from('ag_agenda')
       .update({
-        hora_inicial: payload.hora_inicial,
-        hora_fim: payload.hora_fim,
+        hora_inicial: horaInicialDate.toISOString(),
+        hora_fim: horaFimDate.toISOString(),
         total_hora: payload.total_hora,
         almoco: payload.almoco,
         obs_geral: payload.obs_geral ?? null,
@@ -430,8 +496,8 @@ export async function saveAuditoria(payload: {
     db.ag_agenda.update({
       where: { id_agenda: payload.id_agenda },
       data: {
-        hora_inicial: payload.hora_inicial,
-        hora_fim: payload.hora_fim,
+        hora_inicial: horaInicialDate,
+        hora_fim: horaFimDate,
         total_hora: payload.total_hora,
         almoco: payload.almoco,
         obs_geral: payload.obs_geral ?? null,
@@ -453,39 +519,80 @@ export async function saveAuditoria(payload: {
   ])
 }
 
-export async function updateAgendaVisitas(id_agenda: number, visitasIds: number[]): Promise<void> {
-  // Removes visitas (ag_agenda_diaria rows) NOT in visitasIds, no additions here
-  // (the detail popup only allows exclusions per spec — additions are a separate path)
-  if (visitasIds.length === 0) return
-  if (isSupabaseEnabled()) {
-    const { getSupabaseAdmin } = await import('./supabase')
-    const sb = getSupabaseAdmin()
-    const { error } = await sb
-      .from('ag_agenda_diaria')
-      .delete()
-      .eq('id_a', id_agenda)
-      .not('id_ad', 'in', `(${visitasIds.join(',')})`)
-    if (error) throw error
-    return
+/**
+ * Update visitas of an agenda:
+ *   - Remove visits NOT in keepVisitIds
+ *   - Add new visits from addCodigos (one ag_agenda_diaria row per codigo)
+ * Used by the Lista de Agendas detail popup (admin can edit Pendente agendas).
+ */
+export async function updateAgendaVisitas(
+  id_agenda: number,
+  keepVisitIds: number[],
+  addCodigos: number[]
+): Promise<void> {
+  // Validate all new client codes exist (shared with create path)
+  if (addCodigos.length > 0) {
+    const found = await findClientesByCodigos(addCodigos)
+    const foundCodes = new Set(found.map((c) => c.Codigo))
+    const invalid = addCodigos.filter((c) => !foundCodes.has(c))
+    if (invalid.length > 0) {
+      throw new Error(`Códigos de cliente não encontrados: ${invalid.join(', ')}`)
+    }
   }
-  await db.ag_agenda_diaria.deleteMany({
-    where: { id_a: id_agenda, id_ad: { notIn: visitasIds } },
-  })
-}
 
-export async function addVisitaToAgenda(id_agenda: number, id_clientes: number): Promise<void> {
   if (isSupabaseEnabled()) {
     const { getSupabaseAdmin } = await import('./supabase')
     const sb = getSupabaseAdmin()
-    const { error } = await sb
-      .from('ag_agenda_diaria')
-      .insert({ id_a: id_agenda, id_clientes, status_atendimento: 'Pendente' })
-    if (error) throw error
+
+    // 1. Delete visits not in keepVisitIds
+    if (keepVisitIds.length > 0) {
+      const { error: e1 } = await sb
+        .from('ag_agenda_diaria')
+        .delete()
+        .eq('id_a', id_agenda)
+        .not('id_ad', 'in', `(${keepVisitIds.join(',')})`)
+      if (e1) throw e1
+    } else {
+      // Delete all visits of this agenda
+      const { error: e1 } = await sb
+        .from('ag_agenda_diaria')
+        .delete()
+        .eq('id_a', id_agenda)
+      if (e1) throw e1
+    }
+
+    // 2. Insert new visits
+    if (addCodigos.length > 0) {
+      const rows = addCodigos.map((codigo) => ({
+        id_a: id_agenda,
+        id_clientes: codigo,
+        status_atendimento: 'Pendente',
+      }))
+      const { error: e2 } = await sb
+        .from('ag_agenda_diaria')
+        .insert(rows)
+      if (e2) throw e2
+    }
     return
   }
-  await db.ag_agenda_diaria.create({
-    data: { id_a: id_agenda, id_clientes, status_atendimento: 'Pendente' },
-  })
+
+  // Prisma — transaction: delete + insert
+  await db.$transaction([
+    ...(keepVisitIds.length > 0
+      ? [db.ag_agenda_diaria.deleteMany({
+          where: { id_a: id_agenda, id_ad: { notIn: keepVisitIds } },
+        })]
+      : [db.ag_agenda_diaria.deleteMany({ where: { id_a: id_agenda } })]),
+    ...addCodigos.map((codigo) =>
+      db.ag_agenda_diaria.create({
+        data: {
+          id_a: id_agenda,
+          id_clientes: codigo,
+          status_atendimento: 'Pendente',
+        },
+      })
+    ),
+  ])
 }
 
 export async function deleteAgendas(ids: number[]): Promise<void> {

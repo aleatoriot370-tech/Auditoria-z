@@ -44,9 +44,11 @@ model ag_agenda {
   data_agenda   DateTime?
   mes_referencia String? // 'MM-YYYY'
   placa         String?
-  hora_inicial  String?
-  hora_fim      String?
-  total_hora    String?
+  // ⚠️ Changed from String? to DateTime? to mirror Supabase schema
+  // (timestamp without time zone). The app converts between "HH:MM" and Date.
+  hora_inicial  DateTime?
+  hora_fim      DateTime?
+  total_hora    String?   // remains text — format "HH:MM"
   eficiencia    Float?
   id_auditor    Int?
   data_aud      DateTime?
@@ -68,4 +70,15 @@ model ag_agenda_diaria {
   longitude          String?
   ag_agenda          ag_agenda? @relation(fields: [id_a], references: [id_agenda], onDelete: Cascade, onUpdate: Cascade)
   Clientes           Clientes?  @relation(fields: [id_clientes], references: [Codigo], onDelete: Cascade, onUpdate: Cascade)
+  fotos_vis          fotos_vis[]
+}
+
+model fotos_vis {
+  id_foto    Int      @id @default(autoincrement())
+  created_at DateTime @default(now())
+  id_vis     Int?
+  Nome_Foto  String?  @unique
+  Tipo       String?  // 'Fachada' | 'Antes' | 'Depois'
+  Loc_Foto   String?  // URL or path to the photo
+  ag_agenda_diaria ag_agenda_diaria? @relation(fields: [id_vis], references: [id_ad], onDelete: Cascade, onUpdate: Cascade)
 }

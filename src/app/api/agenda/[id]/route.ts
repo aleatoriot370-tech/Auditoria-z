@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { getAgendaById, getVisitasByAgendaId, updateAgendaVisitas, addVisitaToAgenda, findClienteByCodigo } from '@/lib/datasource'
+import { getAgendaById, getVisitasByAgendaId, updateAgendaVisitas } from '@/lib/datasource'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -70,24 +70,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       )
     }
 
-    // Remove visitas NOT in keep_visit_ids
-    if (Array.isArray(keep_visit_ids)) {
-      await updateAgendaVisitas(id_agenda, keep_visit_ids.map(Number))
-    }
-
-    // Add new codigos
-    if (Array.isArray(add_codigos) && add_codigos.length > 0) {
-      for (const codigo of add_codigos) {
-        const c = await findClienteByCodigo(Number(codigo))
-        if (!c) {
-          return NextResponse.json(
-            { erro: `Código de cliente não encontrado: ${codigo}` },
-            { status: 400 }
-          )
-        }
-        await addVisitaToAgenda(id_agenda, Number(codigo))
-      }
-    }
+    // Atomic update: delete visits not in keep_visit_ids + add new visits from add_codigos.
+    // Validation of new codes happens inside updateAgendaVisitas.
+    await updateAgendaVisitas(
+      id_agenda,
+      Array.isArray(keep_visit_ids) ? keep_visit_ids.map(Number) : [],
+      Array.isArray(add_codigos) ? add_codigos.map(Number) : []
+    )
 
     return NextResponse.json({ sucesso: true })
   } catch (err: any) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { createAgendaWithVisitas } from '@/lib/datasource'
+import { createAgendaWithVisitas, findClientesByCodigos } from '@/lib/datasource'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -13,18 +13,17 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { id_vendedor, data_agenda, placa, visitas } = body ?? {}
+    const { id_gerente, id_vendedor, data_agenda, placa, visitas } = body ?? {}
 
-    if (!id_vendedor || !data_agenda || !placa || !Array.isArray(visitas) || visitas.length === 0) {
+    if (!id_gerente || !id_vendedor || !data_agenda || !placa || !Array.isArray(visitas) || visitas.length === 0) {
       return NextResponse.json(
-        { erro: 'Campos obrigatórios ausentes (id_vendedor, data_agenda, placa, visitas).' },
+        { erro: 'Campos obrigatórios ausentes (gestor, vendedor, data_agenda, placa, visitas).' },
         { status: 400 }
       )
     }
 
     // Validate all client codes exist
     const codigos = visitas.map((v: any) => Number(v.id_clientes))
-    const { findClientesByCodigos } = await import('@/lib/datasource')
     const found = await findClientesByCodigos(codigos)
     const foundCodes = new Set(found.map((c) => c.Codigo))
     const invalid = codigos.filter((c) => !foundCodes.has(c))
@@ -40,7 +39,7 @@ export async function POST(req: NextRequest) {
     const mes_referencia = `${m}-${y}`
 
     const id_agenda = await createAgendaWithVisitas({
-      id_gerente: session.id_user,
+      id_gerente: Number(id_gerente),
       id_vendedor: Number(id_vendedor),
       data_agenda,
       placa,

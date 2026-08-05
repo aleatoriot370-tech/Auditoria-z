@@ -10,11 +10,11 @@ import { CadastroAgenda } from '@/components/lamoia/CadastroAgenda'
 import { ListaAgendas } from '@/components/lamoia/ListaAgendas'
 import type { SessionPayload } from '@/lib/auth'
 
-const TITLES: Record<ModuleKey, string> = {
-  dashboard: 'Dashboard',
-  auditoria: 'Auditoria',
-  cadastro: 'Cadastro de Agenda',
-  lista: 'Lista de Agendas',
+const TITLES: Record<ModuleKey, { title: string; subtitle: string }> = {
+  dashboard: { title: 'Dashboard das Auditorias', subtitle: 'Indicadores de desempenho geral' },
+  auditoria: { title: 'Auditoria', subtitle: 'Audite as agendas de visita' },
+  cadastro: { title: 'Cadastro de Agenda', subtitle: 'Nova agenda manual ou via Excel' },
+  lista: { title: 'Lista de Agendas', subtitle: 'Consulte e gerencie as agendas' },
 }
 
 export default function Home() {
@@ -79,7 +79,11 @@ export default function Home() {
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <TopBar title={TITLES[module]} onOpenSidebar={() => setSidebarOpen(true)} />
+        <TopBar
+          title={TITLES[module].title}
+          subtitle={TITLES[module].subtitle}
+          onOpenSidebar={() => setSidebarOpen(true)}
+        />
 
         <main className="flex-1">
           {module === 'dashboard' && (

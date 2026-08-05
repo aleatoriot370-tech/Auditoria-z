@@ -3,7 +3,13 @@
 import { Menu } from 'lucide-react'
 import Image from 'next/image'
 
-export function TopBar({ title, onOpenSidebar }: { title: string; onOpenSidebar: () => void }) {
+interface TopBarProps {
+  title: string
+  subtitle?: string
+  onOpenSidebar: () => void
+}
+
+export function TopBar({ title, subtitle, onOpenSidebar }: TopBarProps) {
   return (
     <header className="sticky top-0 z-20 h-16 bg-background/95 backdrop-blur border-b border-border flex items-center px-4 lg:px-6 gap-3">
       <button
@@ -23,9 +29,16 @@ export function TopBar({ title, onOpenSidebar }: { title: string; onOpenSidebar:
         />
       </div>
 
-      <h1 className="text-lg lg:text-xl font-semibold text-foreground truncate">
-        {title}
-      </h1>
+      <div className="min-w-0 flex-1">
+        <h1 className="text-lg lg:text-xl font-semibold text-foreground truncate leading-tight">
+          {title}
+        </h1>
+        {subtitle && (
+          <p className="text-xs text-muted-foreground truncate leading-tight hidden sm:block">
+            {subtitle}
+          </p>
+        )}
+      </div>
     </header>
   )
 }
