@@ -1,15 +1,17 @@
 [build]
-  command = "npm run build"
+  # ⚠️ Force npm (not bun) — Netlify sometimes auto-detects bun.lock and uses
+  # bun which is not pre-installed in their build environment.
+  command = "npm install && npm run build"
   publish = ".next"
 
 [build.environment]
   NODE_VERSION = "20"
   NPM_FLAGS = "--legacy-peer-deps"
-  # Next.js + Netlify plugin needs these
   NEXT_TELEMETRY_DISABLED = "1"
+  # Force npm as the package manager (not bun/yarn)
+  NETLIFY_USE_NPM = "true"
 
 # The @netlify/plugin-nextjs is auto-detected by Netlify when there's a next.config file.
-# But we declare it explicitly to ensure it's installed during build.
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
@@ -32,13 +34,5 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
 
-# Force API routes to use the Node.js runtime (not edge)
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/next-api/:splat"
-  status = 200
-  force = false
-
 [functions]
-  # Increase the default timeout for serverless functions (Netlify max is 26s on Pro plans)
   node_bundler = "esbuild"
