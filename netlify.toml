@@ -1,13 +1,15 @@
 [build]
-  command = "bun run build"
+  command = "npm run build"
   publish = ".next"
 
 [build.environment]
   NODE_VERSION = "20"
-  NEXT_PUBLIC_SUPABASE_URL = ""
-  NEXT_PUBLIC_SUPABASE_ANON_KEY = ""
-  SUPABASE_SERVICE_ROLE_KEY = ""
+  NPM_FLAGS = "--legacy-peer-deps"
+  # Next.js + Netlify plugin needs these
+  NEXT_TELEMETRY_DISABLED = "1"
 
+# The @netlify/plugin-nextjs is auto-detected by Netlify when there's a next.config file.
+# But we declare it explicitly to ensure it's installed during build.
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
@@ -21,3 +23,22 @@
   for = "/logo-lamoia.png"
   [headers.values]
     Cache-Control = "public, max-age=86400"
+
+# Security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Force API routes to use the Node.js runtime (not edge)
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/next-api/:splat"
+  status = 200
+  force = false
+
+[functions]
+  # Increase the default timeout for serverless functions (Netlify max is 26s on Pro plans)
+  node_bundler = "esbuild"

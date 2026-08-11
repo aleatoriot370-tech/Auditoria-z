@@ -15,6 +15,9 @@ import type {
   FotoVis,
 } from './types'
 
+// Re-export isSupabaseEnabled so consumers can check it without importing directly from supabase.ts
+export { isSupabaseEnabled }
+
 /**
  * Unified data source abstraction.
  *
