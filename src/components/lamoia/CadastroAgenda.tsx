@@ -181,7 +181,10 @@ export function CadastroAgenda() {
       })
       const d = await r.json()
       if (!r.ok) {
-        toast.error(d.erro || 'Falha ao salvar agenda')
+        // For 409 Conflict (duplicate agenda) → use longer duration (8s) so the user can read it.
+        // For other errors → default duration.
+        const duration = r.status === 409 ? 8000 : 6000
+        toast.error(d.erro || 'Falha ao salvar agenda', { duration })
         return
       }
       toast.success(`Agenda #${d.id_agenda} criada com ${visitas.length} visita(s).`)
@@ -263,7 +266,13 @@ export function CadastroAgenda() {
         toast.error(d.erro || 'Falha ao importar')
         return
       }
-      toast.success(`Importação concluída! ${d.total_agendas} agenda(s) • ${d.total_visitas} visita(s).`)
+      // If some dates were skipped (already had agendas), show a warning toast
+      // with longer duration; otherwise show a success toast.
+      if (d.skipped_dates && d.skipped_dates.length > 0) {
+        toast.warning(d.mensagem || `${d.total_agendas} agenda(s) importada(s). ${d.skipped_dates.length} data(s) não foram importadas pois já possuem agenda.`, { duration: 10000 })
+      } else {
+        toast.success(`Importação concluída! ${d.total_agendas} agenda(s) • ${d.total_visitas} visita(s).`)
+      }
       resetForm()
     } catch (err: any) {
       toast.error(err.message || 'Erro ao importar')
@@ -313,8 +322,8 @@ export function CadastroAgenda() {
       <div className="rounded-xl border border-border bg-card p-5 card-shadow space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {/* Gestor field — dynamic based on user Tipo */}
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground flex items-center gap-1">
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide flex items-center gap-1">
               <User className="w-3 h-3" /> Gestor
             </label>
             {isAdmin ? (
@@ -344,8 +353,8 @@ export function CadastroAgenda() {
           </div>
 
           {/* Vendedor field — dropdown with all Users (vendedores) */}
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Vendedor</label>
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Vendedor</label>
             <select
               value={idVendedor}
               onChange={(e) => setIdVendedor(e.target.value)}
@@ -361,8 +370,8 @@ export function CadastroAgenda() {
             </select>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground flex items-center gap-1">
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide flex items-center gap-1">
               <Truck className="w-3 h-3" /> Placa
             </label>
             <input
@@ -401,8 +410,8 @@ export function CadastroAgenda() {
       {mode === 'manual' && (
         <>
           <div className="rounded-xl border border-border bg-card p-5 card-shadow space-y-4">
-            <div className="space-y-1 max-w-xs">
-              <label className="text-xs text-muted-foreground flex items-center gap-1">
+            <div className="space-y-2 max-w-xs">
+              <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide flex items-center gap-1">
                 <Calendar className="w-3 h-3" /> Data da Agenda
               </label>
               <input

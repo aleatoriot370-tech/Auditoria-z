@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Toaster } from "@/components/ui/toaster";
+// ⚠️ Use Sonner's Toaster (NOT @/components/ui/toaster which is the old system
+// based on react-toastify/use-toast hook — our components import `toast` from `sonner`).
+import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,7 +36,12 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
         {children}
-        <Toaster />
+        <Toaster
+          position="top-right"
+          richColors
+          closeButton
+          duration={6000}
+        />
       </body>
     </html>
   );

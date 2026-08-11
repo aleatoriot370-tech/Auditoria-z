@@ -158,8 +158,8 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
         </div>
 
         <div className="flex flex-wrap gap-2 items-end">
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Tipo</label>
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Tipo</label>
             <div className="inline-flex rounded-lg border border-border overflow-hidden">
               <button
                 type="button"
@@ -183,8 +183,8 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
           </div>
 
           {filterTipo === 'mes' ? (
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Mês referência</label>
+            <div className="space-y-2">
+              <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Mês referência</label>
               <input
                 type="month"
                 value={mesReferenciaInput}
@@ -194,8 +194,8 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
             </div>
           ) : (
             <>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Data início</label>
+              <div className="space-y-2">
+                <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Data início</label>
                 <input
                   type="date"
                   value={dataInicio}
@@ -203,8 +203,8 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
                   className="h-10 px-3 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Data fim</label>
+              <div className="space-y-2">
+                <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Data fim</label>
                 <input
                   type="date"
                   value={dataFim}
@@ -216,8 +216,8 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
           )}
 
           {!isComercial && (
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Gestor</label>
+            <div className="space-y-2">
+              <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Gestor</label>
               <select
                 value={idGestor}
                 onChange={(e) => setIdGestor(e.target.value)}
@@ -233,8 +233,8 @@ export function Dashboard({ isComercial, userName }: DashboardProps) {
             </div>
           )}
 
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Vendedor</label>
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Vendedor</label>
             <select
               value={idVendedor}
               onChange={(e) => setIdVendedor(e.target.value)}

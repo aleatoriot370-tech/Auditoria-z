@@ -80,6 +80,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     return NextResponse.json({ sucesso: true })
   } catch (err: any) {
+    // Validation errors (non-Pendente visits, missing clients) → 409 Conflict.
+    // Don't log expected business-rule errors to the console.
+    if (err.code === 'VISITA_NOT_PENDENTE') {
+      return NextResponse.json(
+        { erro: err.message, code: err.code },
+        { status: 409 }
+      )
+    }
     console.error('[agenda/[id]/PATCH] error:', err)
     return NextResponse.json(
       { erro: 'Falha ao atualizar agenda: ' + err.message },

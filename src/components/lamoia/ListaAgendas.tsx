@@ -48,6 +48,22 @@ interface NewClientRow {
   UF: string | null
 }
 
+/**
+ * Format a "YYYY-MM-DD" date string as "DD/MM/YYYY" WITHOUT timezone conversion.
+ *
+ * ⚠️ This is critical: `new Date('2026-08-11').toLocaleDateString('pt-BR')` interprets
+ * the date as UTC midnight and converts to local timezone, which shifts the date
+ * backwards by 1 day in Western timezones (e.g., Brazil UTC-3 → '10/08/2026').
+ *
+ * By parsing the string manually we avoid any Date object / timezone math.
+ */
+function formatDateBR(ymd: string | null | undefined): string {
+  if (!ymd) return '—'
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return ymd
+  return `${m[3]}/${m[2]}/${m[1]}`
+}
+
 export function ListaAgendas() {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<ListResponse | null>(null)
@@ -129,11 +145,24 @@ export function ListaAgendas() {
     }
   }
 
-  function toggleKeep(id_ad: number) {
+  function toggleKeep(id_ad: number, status?: string | null) {
+    // ⚠️ Only visits with status "Pendente" can be unchecked (which means removed).
+    // For any other status, show a warning and refuse to toggle.
     setKeepIds((prev) => {
       const next = new Set(prev)
-      if (next.has(id_ad)) next.delete(id_ad)
-      else next.add(id_ad)
+      if (next.has(id_ad)) {
+        // Trying to UNCHECK (remove) — block if status != 'Pendente'
+        if (status && status !== 'Pendente') {
+          toast.error(
+            `Não é possível remover esta visita pois seu status é "${status}". Apenas visitas com status "Pendente" podem ser removidas.`,
+            { duration: 8000 }
+          )
+          return prev  // keep current state
+        }
+        next.delete(id_ad)
+      } else {
+        next.add(id_ad)
+      }
       return next
     })
   }
@@ -200,7 +229,12 @@ export function ListaAgendas() {
       })
       const d = await r.json()
       if (!r.ok) {
-        toast.error(d.erro || 'Falha ao salvar')
+        // Show validation errors (non-Pendente visits) with longer duration
+        if (r.status === 409) {
+          toast.error(d.erro || 'Não é possível salvar as alterações.', { duration: 10000 })
+        } else {
+          toast.error(d.erro || 'Falha ao salvar')
+        }
         return
       }
       toast.success('Agenda atualizada!')
@@ -229,7 +263,12 @@ export function ListaAgendas() {
       })
       const d = await r.json()
       if (!r.ok) {
-        toast.error(d.erro || 'Falha ao excluir')
+        // Show validation errors (finalized/non-Pendente) with longer duration
+        if (r.status === 409) {
+          toast.error(d.erro || 'Não é possível excluir as agendas selecionadas.', { duration: 10000 })
+        } else {
+          toast.error(d.erro || 'Falha ao excluir')
+        }
         return
       }
       toast.success(`${d.excluidas} agenda(s) excluída(s).`)
@@ -263,8 +302,8 @@ export function ListaAgendas() {
       {/* Filters */}
       <div className="rounded-xl border border-border bg-card p-4 card-shadow space-y-4">
         <div className="flex flex-wrap gap-3 items-end">
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Tipo</label>
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Tipo</label>
             <div className="inline-flex rounded-lg border border-border overflow-hidden">
               <button
                 onClick={() => setFilterTipo('data')}
@@ -287,8 +326,8 @@ export function ListaAgendas() {
 
           {filterTipo === 'data' ? (
             <>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Data início</label>
+              <div className="space-y-2">
+                <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Data início</label>
                 <input
                   type="date"
                   value={dataInicio}
@@ -296,8 +335,8 @@ export function ListaAgendas() {
                   className="h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Data fim</label>
+              <div className="space-y-2">
+                <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Data fim</label>
                 <input
                   type="date"
                   value={dataFim}
@@ -307,8 +346,8 @@ export function ListaAgendas() {
               </div>
             </>
           ) : (
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Mês referência</label>
+            <div className="space-y-2">
+              <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Mês referência</label>
               <input
                 type="month"
                 value={mesReferenciaInput}
@@ -318,8 +357,8 @@ export function ListaAgendas() {
             </div>
           )}
 
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Gestor</label>
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Gestor</label>
             <select
               value={idGestor}
               onChange={(e) => setIdGestor(e.target.value)}
@@ -335,8 +374,8 @@ export function ListaAgendas() {
             </select>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Vendedor</label>
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Vendedor</label>
             <select
               value={idVendedor}
               onChange={(e) => setIdVendedor(e.target.value)}
@@ -395,9 +434,7 @@ export function ListaAgendas() {
               </thead>
               <tbody className="divide-y divide-border">
                 {data?.agendas.map((a) => {
-                  const dateStr = a.data_agenda
-                    ? new Date(a.data_agenda).toLocaleDateString('pt-BR')
-                    : '—'
+                  const dateStr = formatDateBR(a.data_agenda)
                   const statusColor =
                     a.status_atual === 'Finalizado'
                       ? 'bg-green-100 text-green-700'
@@ -499,7 +536,7 @@ export function ListaAgendas() {
                   <Field label="Vendedor" value={detail.agenda.vendedor?.Nome ?? '—'} />
                   <Field
                     label="Data"
-                    value={detail.agenda.data_agenda ? new Date(detail.agenda.data_agenda).toLocaleDateString('pt-BR') : '—'}
+                    value={formatDateBR(detail.agenda.data_agenda)}
                   />
                   <Field label="Q. Visitas" value={String(detail.visitas.length)} />
                   <Field label="Status" value={detail.agenda.status_atual ?? '—'} />
@@ -519,29 +556,46 @@ export function ListaAgendas() {
                           <th className="px-3 py-2 font-medium">Bairro</th>
                           <th className="px-3 py-2 font-medium">Cidade</th>
                           <th className="px-3 py-2 font-medium w-16">UF</th>
+                          <th className="px-3 py-2 font-medium">Status</th>
                           {detail.canEdit && <th className="px-3 py-2 font-medium w-16 text-center">Manter</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {detail.visitas.map((v) => (
-                          <tr key={v.id_ad} className="hover:bg-muted/30">
-                            <td className="px-3 py-2 tabular-nums">{v.id_clientes ?? '—'}</td>
-                            <td className="px-3 py-2">{v.cliente?.Razao ?? '—'}</td>
-                            <td className="px-3 py-2">{v.cliente?.Bairro ?? '—'}</td>
-                            <td className="px-3 py-2">{v.cliente?.Cidade ?? '—'}</td>
-                            <td className="px-3 py-2 text-center">{v.cliente?.UF ?? '—'}</td>
-                            {detail.canEdit && (
-                              <td className="px-3 py-2 text-center">
-                                <input
-                                  type="checkbox"
-                                  checked={keepIds.has(v.id_ad)}
-                                  onChange={() => toggleKeep(v.id_ad)}
-                                  className="w-4 h-4 accent-primary cursor-pointer"
-                                />
+                        {detail.visitas.map((v) => {
+                          const isPendente = v.status_atendimento === 'Pendente'
+                          return (
+                            <tr key={v.id_ad} className="hover:bg-muted/30">
+                              <td className="px-3 py-2 tabular-nums">{v.id_clientes ?? '—'}</td>
+                              <td className="px-3 py-2">{v.cliente?.Razao ?? '—'}</td>
+                              <td className="px-3 py-2">{v.cliente?.Bairro ?? '—'}</td>
+                              <td className="px-3 py-2">{v.cliente?.Cidade ?? '—'}</td>
+                              <td className="px-3 py-2 text-center">{v.cliente?.UF ?? '—'}</td>
+                              <td className="px-3 py-2">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${
+                                  v.status_atendimento === 'Realizado' ? 'bg-green-100 text-green-700'
+                                  : v.status_atendimento === 'Cancelado' ? 'bg-red-100 text-red-700'
+                                  : v.status_atendimento === 'Em Atendimento' ? 'bg-blue-100 text-blue-700'
+                                  : v.status_atendimento === 'Pendente Auditoria' ? 'bg-purple-100 text-purple-700'
+                                  : 'bg-amber-100 text-amber-700'
+                                }`}>
+                                  {v.status_atendimento ?? '—'}
+                                </span>
                               </td>
-                            )}
-                          </tr>
-                        ))}
+                              {detail.canEdit && (
+                                <td className="px-3 py-2 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={keepIds.has(v.id_ad)}
+                                    onChange={() => toggleKeep(v.id_ad, v.status_atendimento)}
+                                    disabled={!isPendente}
+                                    className="w-4 h-4 accent-primary cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                                    title={isPendente ? 'Marcar para manter (desmarque para excluir)' : `Não pode ser removida (status: ${v.status_atendimento})`}
+                                  />
+                                </td>
+                              )}
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>

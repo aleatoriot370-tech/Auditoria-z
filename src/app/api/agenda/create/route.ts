@@ -52,6 +52,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ sucesso: true, id_agenda })
   } catch (err: any) {
+    // Validation errors (duplicate agenda) → 409 Conflict with friendly message.
+    // Don't log expected business-rule errors to the console (avoids noise in the user's terminal).
+    if (err.code === 'DUPLICATE_AGENDA') {
+      return NextResponse.json(
+        { erro: err.message, code: 'DUPLICATE_AGENDA', existing_id: err.existingId },
+        { status: 409 }
+      )
+    }
     console.error('[agenda/create] error:', err)
     return NextResponse.json(
       { erro: 'Falha ao criar agenda: ' + err.message },

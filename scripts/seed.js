@@ -196,7 +196,8 @@ async function main() {
           id_a: ag.id_agenda,
           id_clientes: cliente.Codigo,
           status_atendimento: 'Pendente',
-          data_hora_atendimento: visitDate,
+          data_hora_atendimento_inicio: visitDate,
+          data_hora_atendimento_fim: new Date(visitDate.getTime() + 30 * 60 * 1000),
           latitude: '-23.5505',
           longitude: '-46.6333',
         },
@@ -231,7 +232,8 @@ async function main() {
           id_a: ag.id_agenda,
           id_clientes: cliente.Codigo,
           status_atendimento: 'Pendente',
-          data_hora_atendimento: visitDate,
+          data_hora_atendimento_inicio: visitDate,
+          data_hora_atendimento_fim: new Date(visitDate.getTime() + 30 * 60 * 1000),
           latitude: '-23.5505',
           longitude: '-46.6333',
         },
@@ -285,13 +287,46 @@ async function main() {
           id_a: ag.id_agenda,
           id_clientes: cliente.Codigo,
           status_atendimento: status,
-          data_hora_atendimento: visitDate,
+          data_hora_atendimento_inicio: visitDate,
+          data_hora_atendimento_fim: new Date(visitDate.getTime() + 30 * 60 * 1000),
           latitude: '-23.5505',
           longitude: '-46.6333',
           observacao: status === 'Cancelado' ? 'Cliente indisponível' : null,
         },
       })
     }
+  }
+
+  // --- Sample photos (fotos_vis) — for the first visita of the first finalized agenda ---
+  // Uses public placeholder images so the gallery is testable in the sandbox.
+  try {
+    const firstAgenda = await db.ag_agenda.findFirst({
+      where: { status_atual: 'Finalizado' },
+      orderBy: { id_agenda: 'asc' },
+    })
+    if (firstAgenda) {
+      const firstVisita = await db.ag_agenda_diaria.findFirst({
+        where: { id_a: firstAgenda.id_agenda },
+        orderBy: { id_ad: 'asc' },
+      })
+      if (firstVisita) {
+        const sampleFotos = [
+          { id_vis: firstVisita.id_ad, Nome_Foto: 'sample_fachada.jpg', Tipo: 'Fachada', Loc_Foto: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800' },
+          { id_vis: firstVisita.id_ad, Nome_Foto: 'sample_antes.jpg', Tipo: 'Antes', Loc_Foto: 'https://images.unsplash.com/photo-1581558438927-9b39bb95eb4d?w=800' },
+          { id_vis: firstVisita.id_ad, Nome_Foto: 'sample_depois.jpg', Tipo: 'Depois', Loc_Foto: 'https://images.unsplash.com/photo-1528698827591-e19ccd7bc23d?w=800' },
+        ]
+        for (const f of sampleFotos) {
+          await db.fotos_vis.upsert({
+            where: { Nome_Foto: f.Nome_Foto },
+            update: {},
+            create: f,
+          })
+        }
+        console.log('Sample photos inserted for visita', firstVisita.id_ad)
+      }
+    }
+  } catch (e) {
+    console.log('Skip sample photos:', e.message)
   }
 
   console.log('Seed completed successfully!')

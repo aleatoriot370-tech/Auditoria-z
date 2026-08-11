@@ -205,14 +205,78 @@ export async function findClientesByCodigos(codigos: number[]): Promise<Cliente[
 // AGENDA - CRUD
 // ============================================================================
 
+/**
+ * Check whether a vendedor already has an agenda on the given date.
+ * Used to block duplicate agenda creation.
+ *
+ * @returns the existing agenda's id_agenda if found, null otherwise.
+ */
+export async function findExistingAgendaForVendedor(
+  id_vendedor: number,
+  data_agenda: string // YYYY-MM-DD
+): Promise<number | null> {
+  if (isSupabaseEnabled()) {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const sb = getSupabaseAdmin()
+    // ⚠️ Supabase `data_agenda` column is `date` type — comparing with ISO timestamp
+    // strings like "2026-08-15T00:00:00" causes issues. Use `eq` with YYYY-MM-DD.
+    // Try multiple strategies to be safe (covers both `date` and `timestamp` column types).
+    const { data, error } = await sb
+      .from('ag_agenda')
+      .select('id_agenda, data_agenda')
+      .eq('id_vendedor', id_vendedor)
+      .limit(1000)
+    if (error) throw error
+    const rows = (data as any[]) ?? []
+    // Filter client-side to match the target date (handles both date and timestamp types).
+    const target = data_agenda  // YYYY-MM-DD
+    const match = rows.find((r) => {
+      const d = r.data_agenda
+      if (!d) return false
+      // date-only: "2026-08-15"
+      if (typeof d === 'string') {
+        return d.slice(0, 10) === target
+      }
+      // Date object
+      if (d instanceof Date) {
+        const y = d.getFullYear()
+        const m = String(d.getMonth() + 1).padStart(2, '0')
+        const day = String(d.getDate()).padStart(2, '0')
+        return `${y}-${m}-${day}` === target
+      }
+      return false
+    })
+    return match ? (match.id_agenda as number) : null
+  }
+  // Prisma (SQLite)
+  const start = new Date(`${data_agenda}T00:00:00`)
+  const end = new Date(`${data_agenda}T23:59:59`)
+  const row = await db.ag_agenda.findFirst({
+    where: { id_vendedor, data_agenda: { gte: start, lte: end } },
+    select: { id_agenda: true },
+  })
+  return row?.id_agenda ?? null
+}
+
 export async function createAgendaWithVisitas(payload: {
   id_gerente: number
   id_vendedor: number
   data_agenda: string // YYYY-MM-DD
   placa: string
   mes_referencia: string // MM-YYYY
-  visitas: { id_clientes: number; data_hora_atendimento?: string }[]
+  visitas: { id_clientes: number; data_hora_atendimento_inicio?: string; data_hora_atendimento_fim?: string }[]
 }): Promise<number> {
+  // ⚠️ BLOCK DUPLICATE: refuse to create if the vendedor already has an agenda on this date.
+  const existingId = await findExistingAgendaForVendedor(payload.id_vendedor, payload.data_agenda)
+  if (existingId !== null) {
+    const err: any = new Error(
+      `Já existe uma agenda (#${existingId}) cadastrada para este vendedor na data ${payload.data_agenda.split('-').reverse().join('/')}. Consulte a Lista de Agendas para modificar ou excluir a agenda existente.`
+    )
+    err.code = 'DUPLICATE_AGENDA'
+    err.existingId = existingId
+    throw err
+  }
+
   if (isSupabaseEnabled()) {
     const { getSupabaseAdmin } = await import('./supabase')
     const sb = getSupabaseAdmin()
@@ -237,7 +301,8 @@ export async function createAgendaWithVisitas(payload: {
         id_a: id_agenda,
         id_clientes: v.id_clientes,
         status_atendimento: 'Pendente',
-        data_hora_atendimento: v.data_hora_atendimento ?? null,
+        data_hora_atendimento_inicio: v.data_hora_atendimento_inicio ?? null,
+        data_hora_atendimento_fim: v.data_hora_atendimento_fim ?? null,
       }))
       const { error: err2 } = await sb.from('ag_agenda_diaria').insert(rows)
       if (err2) throw err2
@@ -259,7 +324,8 @@ export async function createAgendaWithVisitas(payload: {
         create: payload.visitas.map((v) => ({
           id_clientes: v.id_clientes,
           status_atendimento: 'Pendente',
-          data_hora_atendimento: v.data_hora_atendimento ? new Date(v.data_hora_atendimento) : null,
+          data_hora_atendimento_inicio: v.data_hora_atendimento_inicio ? new Date(v.data_hora_atendimento_inicio) : null,
+          data_hora_atendimento_fim: v.data_hora_atendimento_fim ? new Date(v.data_hora_atendimento_fim) : null,
         })),
       },
     },
@@ -330,9 +396,16 @@ export async function getVisitasByAgendaId(id_a: number): Promise<AgendaDiaria[]
   })
   return rows.map((r: any) => ({
     ...r,
-    data_hora_atendimento: r.data_hora_atendimento instanceof Date
-      ? r.data_hora_atendimento.toISOString()
-      : r.data_hora_atendimento,
+    data_hora_atendimento_inicio: r.data_hora_atendimento_inicio instanceof Date
+      ? r.data_hora_atendimento_inicio.toISOString()
+      : r.data_hora_atendimento_inicio,
+    data_hora_atendimento_fim: r.data_hora_atendimento_fim instanceof Date
+      ? r.data_hora_atendimento_fim.toISOString()
+      : r.data_hora_atendimento_fim,
+    // Backward-compat alias
+    data_hora_atendimento: r.data_hora_atendimento_inicio instanceof Date
+      ? r.data_hora_atendimento_inicio.toISOString()
+      : r.data_hora_atendimento_inicio,
     cliente: r.Clientes,
     Clientes: undefined,
   })) as unknown as AgendaDiaria[]
@@ -430,13 +503,39 @@ function dateToTime(value: any): string | null {
   }
 }
 
+/**
+ * Format a Date or ISO date string into "YYYY-MM-DD" using LOCAL time components.
+ *
+ * ⚠️ CRITICAL: This fixes the "off-by-one day" bug where `new Date('2026-08-11').toISOString().slice(0,10)`
+ * returned the previous day in timezones behind UTC (e.g., Brazil UTC-3 → "2026-08-10").
+ *
+ * We must NEVER use `toISOString()` for date-only fields — it converts to UTC midnight
+ * which shifts the date backwards in Western timezones.
+ */
+function localDateToYMD(value: any): string | null {
+  if (!value) return null
+  try {
+    const d = value instanceof Date ? value : new Date(value)
+    if (Number.isNaN(d.getTime())) return null
+    // Use LOCAL date components, not UTC
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  } catch {
+    return null
+  }
+}
+
 /** Normalize date/time fields across Prisma (Date) and Supabase (string) into ISO strings. */
 function normalizeAgenda(row: any): AgendaWithJoins {
   return {
     ...row,
     data_criacao: row.data_criacao instanceof Date ? row.data_criacao.toISOString() : row.data_criacao,
-    data_agenda: row.data_agenda instanceof Date ? row.data_agenda.toISOString().slice(0, 10) : row.data_agenda,
-    data_aud: row.data_aud instanceof Date ? row.data_aud.toISOString().slice(0, 10) : row.data_aud,
+    // ⚠️ Use LOCAL date (not UTC) to avoid off-by-one bug in Western timezones.
+    // The frontend renders `data_agenda` as a plain "YYYY-MM-DD" string — no timezone conversion.
+    data_agenda: row.data_agenda instanceof Date ? localDateToYMD(row.data_agenda) : row.data_agenda,
+    data_aud: row.data_aud instanceof Date ? localDateToYMD(row.data_aud) : row.data_aud,
     // hora_inicial / hora_fim: timestamp columns → "HH:MM" for display
     hora_inicial: dateToTime(row.hora_inicial),
     hora_fim: dateToTime(row.hora_fim),
@@ -473,7 +572,8 @@ export async function saveAuditoria(payload: {
         eficiencia: payload.eficiencia,
         status_atual: 'Finalizado',
         id_auditor: payload.id_auditor,
-        data_aud: new Date().toISOString().slice(0, 10),
+        // ⚠️ Use LOCAL date (not UTC) to avoid off-by-one when saving audit date.
+        data_aud: localDateToYMD(new Date()),
       })
       .eq('id_agenda', payload.id_agenda)
     if (e1) throw e1
@@ -523,6 +623,11 @@ export async function saveAuditoria(payload: {
  * Update visitas of an agenda:
  *   - Remove visits NOT in keepVisitIds
  *   - Add new visits from addCodigos (one ag_agenda_diaria row per codigo)
+ *
+ * ⚠️ VALIDATION: Visits whose status_atendimento is NOT 'Pendente' cannot be removed.
+ *   If the user tries to remove a non-Pendente visit, this function throws an error
+ *   with `code = 'VISITA_NOT_PENDENTE'`.
+ *
  * Used by the Lista de Agendas detail popup (admin can edit Pendente agendas).
  */
 export async function updateAgendaVisitas(
@@ -538,6 +643,51 @@ export async function updateAgendaVisitas(
     if (invalid.length > 0) {
       throw new Error(`Códigos de cliente não encontrados: ${invalid.join(', ')}`)
     }
+  }
+
+  // ⚠️ Determine which visits would be REMOVED (i.e., all current visits NOT in keepVisitIds).
+  // For each, check if status_atendimento === 'Pendente'. If any non-Pendente visit
+  // would be removed, throw an error listing which ones block the operation.
+  let visitasToRemove: { id_ad: number; status: string; cliente: string | null }[] = []
+  if (isSupabaseEnabled()) {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const sb = getSupabaseAdmin()
+    const { data, error } = await sb
+      .from('ag_agenda_diaria')
+      .select('id_ad, status_atendimento, cliente:Clientes(Razao)')
+      .eq('id_a', id_agenda)
+    if (error) throw error
+    const keepSet = new Set(keepVisitIds)
+    visitasToRemove = ((data as any[]) ?? [])
+      .filter((v) => !keepSet.has(v.id_ad))
+      .map((v) => ({
+        id_ad: v.id_ad,
+        status: v.status_atendimento ?? '—',
+        cliente: v.cliente?.Razao ?? `#${v.id_ad}`,
+      }))
+  } else {
+    const rows = await db.ag_agenda_diaria.findMany({
+      where: { id_a: id_agenda },
+      include: { Clientes: { select: { Razao: true } } },
+    })
+    const keepSet = new Set(keepVisitIds)
+    visitasToRemove = rows
+      .filter((r: any) => !keepSet.has(r.id_ad))
+      .map((r: any) => ({
+        id_ad: r.id_ad,
+        status: r.status_atendimento ?? '—',
+        cliente: r.Clientes?.Razao ?? `#${r.id_ad}`,
+      }))
+  }
+  const nonPendente = visitasToRemove.filter((v) => v.status !== 'Pendente')
+  if (nonPendente.length > 0) {
+    const lines = nonPendente.map((v) => `${v.cliente} (status: ${v.status})`)
+    const err: any = new Error(
+      `Não é possível excluir ${nonPendente.length} visita(s) pois não estão com status "Pendente": ${lines.join(', ')}. Apenas visitas Pendentes podem ser removidas.`
+    )
+    err.code = 'VISITA_NOT_PENDENTE'
+    err.blocked_visit_ids = nonPendente.map((v) => v.id_ad)
+    throw err
   }
 
   if (isSupabaseEnabled()) {
@@ -597,13 +747,95 @@ export async function updateAgendaVisitas(
 
 export async function deleteAgendas(ids: number[]): Promise<void> {
   if (ids.length === 0) return
+
+  // ⚠️ PRE-DELETE VALIDATION:
+  //   - Refuse to delete finalized agendas (status_atual === 'Finalizado')
+  //   - Refuse to delete agendas that have any visita with status != 'Pendente'
+  //     (e.g., 'Em Atendimento', 'Pendente Auditoria', 'Realizado', 'Cancelado')
+  //   Only fully-Pendente agendas can be safely deleted.
   if (isSupabaseEnabled()) {
     const { getSupabaseAdmin } = await import('./supabase')
     const sb = getSupabaseAdmin()
-    // Cascade delete handled by FK ON DELETE CASCADE on ag_agenda_diaria
+    // Check each agenda's status + its visitas' statuses
+    const { data: agendas, error: e1 } = await sb
+      .from('ag_agenda')
+      .select('id_agenda, status_atual')
+      .in('id_agenda', ids)
+    if (e1) throw e1
+    const finalized = (agendas ?? []).filter((a: any) => a.status_atual === 'Finalizado')
+    if (finalized.length > 0) {
+      const err: any = new Error(
+        `Não é possível excluir ${finalized.length} agenda(s) finalizada(s): #${finalized.map((a: any) => a.id_agenda).join(', #')}. Agendas finalizadas não podem ser excluídas.`
+      )
+      err.code = 'AGENDA_FINALIZED'
+      err.finalized_ids = finalized.map((a: any) => a.id_agenda)
+      throw err
+    }
+    // Check visitas status
+    const { data: visitas, error: e2 } = await sb
+      .from('ag_agenda_diaria')
+      .select('id_a, status_atendimento')
+      .in('id_a', ids)
+    if (e2) throw e2
+    const nonPendenteByAgenda = new Map<number, string[]>()
+    for (const v of (visitas ?? []) as any[]) {
+      if (v.status_atendimento !== 'Pendente') {
+        const arr = nonPendenteByAgenda.get(v.id_a) ?? []
+        arr.push(v.status_atendimento)
+        nonPendenteByAgenda.set(v.id_a, arr)
+      }
+    }
+    if (nonPendenteByAgenda.size > 0) {
+      const lines = Array.from(nonPendenteByAgenda.entries()).map(
+        ([id_a, statuses]) => `#${id_a} (visitas: ${Array.from(new Set(statuses)).join(', ')})`
+      )
+      const err: any = new Error(
+        `Não é possível excluir ${nonPendenteByAgenda.size} agenda(s) pois possuem visitas com status diferente de "Pendente": ${lines.join('; ')}. Apenas agendas com todas as visitas em status "Pendente" podem ser excluídas.`
+      )
+      err.code = 'AGENDA_HAS_NON_PENDENTE_VISITAS'
+      err.blocked_ids = Array.from(nonPendenteByAgenda.keys())
+      throw err
+    }
+    // All checks passed → delete (cascade handled by FK ON DELETE CASCADE)
     const { error } = await sb.from('ag_agenda').delete().in('id_agenda', ids)
     if (error) throw error
     return
+  }
+  // Prisma
+  // Check finalized agendas
+  const finalizedRows = await db.ag_agenda.findMany({
+    where: { id_agenda: { in: ids }, status_atual: 'Finalizado' },
+    select: { id_agenda: true },
+  })
+  if (finalizedRows.length > 0) {
+    const err: any = new Error(
+      `Não é possível excluir ${finalizedRows.length} agenda(s) finalizada(s): #${finalizedRows.map((r) => r.id_agenda).join(', #')}. Agendas finalizadas não podem ser excluídas.`
+    )
+    err.code = 'AGENDA_FINALIZED'
+    err.finalized_ids = finalizedRows.map((r) => r.id_agenda)
+    throw err
+  }
+  // Check visitas with non-Pendente status
+  const nonPendenteVisitas = await db.ag_agenda_diaria.findMany({
+    where: { id_a: { in: ids }, status_atendimento: { not: 'Pendente' } },
+    select: { id_a: true, status_atendimento: true },
+  })
+  if (nonPendenteVisitas.length > 0) {
+    const byAgenda = new Map<number, string[]>()
+    for (const v of nonPendenteVisitas as any[]) {
+      const arr = byAgenda.get(v.id_a) ?? []
+      arr.push(v.status_atendimento)
+      byAgenda.set(v.id_a, arr)
+    }
+    const lines = Array.from(byAgenda.entries()).map(
+      ([id_a, statuses]) => `#${id_a} (visitas: ${Array.from(new Set(statuses)).join(', ')})`
+    )
+    const err: any = new Error(
+      `Não é possível excluir ${byAgenda.size} agenda(s) pois possuem visitas com status diferente de "Pendente": ${lines.join('; ')}. Apenas agendas com todas as visitas em status "Pendente" podem ser excluídas.`
+    )
+    err.code = 'AGENDA_HAS_NON_PENDENTE_VISITAS'
+    err.blocked_ids = Array.from(byAgenda.keys())
+    throw err
   }
   await db.ag_agenda.deleteMany({ where: { id_agenda: { in: ids } } })
 }
@@ -727,8 +959,9 @@ export async function listAgendas(filters: {
     return {
       ...rest,
       data_criacao: r.data_criacao instanceof Date ? r.data_criacao.toISOString() : r.data_criacao,
-      data_agenda: r.data_agenda instanceof Date ? r.data_agenda.toISOString().slice(0, 10) : r.data_agenda,
-      data_aud: r.data_aud instanceof Date ? r.data_aud.toISOString().slice(0, 10) : r.data_aud,
+      // ⚠️ Use LOCAL date (not UTC) to avoid off-by-one bug in Western timezones.
+      data_agenda: r.data_agenda instanceof Date ? localDateToYMD(r.data_agenda) : r.data_agenda,
+      data_aud: r.data_aud instanceof Date ? localDateToYMD(r.data_aud) : r.data_aud,
       gerente: Users_UsersToag_agenda_id_gerente,
       vendedor: Users_UsersToag_agenda_id_vendedor,
       total_visitas: m?.total ?? _count?.ag_agenda_diaria ?? 0,

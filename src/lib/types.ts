@@ -48,7 +48,12 @@ export interface AgendaDiaria {
   id_a: number | null
   id_clientes: number | null
   status_atendimento: string | null
-  data_hora_atendimento: string | null
+  // ⚠️ Renamed from data_hora_atendimento to data_hora_atendimento_inicio
+  // + added data_hora_atendimento_fim
+  data_hora_atendimento_inicio?: string | null
+  data_hora_atendimento_fim?: string | null
+  // Legacy field kept for backward compat (maps to data_hora_atendimento_inicio)
+  data_hora_atendimento?: string | null
   observacao: string | null
   latitude: string | null
   longitude: string | null

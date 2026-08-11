@@ -20,6 +20,9 @@ interface Visita {
     Cidade: string | null
     UF: string | null
   } | null
+  data_hora_atendimento_inicio?: string | null
+  data_hora_atendimento_fim?: string | null
+  // legacy alias kept for backward compat
   data_hora_atendimento?: string | null
 }
 
@@ -59,6 +62,53 @@ interface SearchResult {
   }
   readOnly?: boolean
   readOnlyReason?: string | null
+}
+
+/**
+ * Format permanence (duration) between two timestamps.
+ * Returns null if either is missing or invalid.
+ *
+ * @example
+ *   formatPermanencia('2026-08-05T08:00:00', '2026-08-05T08:45:30')
+ *   // → { duracao: '45min 30s', inicio: '08:00', fim: '08:45' }
+ */
+function formatPermanencia(
+  inicio?: string | null,
+  fim?: string | null
+): { duracao: string; inicio: string; fim: string } | null {
+  if (!inicio || !fim) return null
+  try {
+    const dIni = new Date(inicio)
+    const dFim = new Date(fim)
+    if (Number.isNaN(dIni.getTime()) || Number.isNaN(dFim.getTime())) return null
+    if (dFim <= dIni) return null
+
+    const diffMs = dFim.getTime() - dIni.getTime()
+    const totalMin = Math.floor(diffMs / 60000)
+    const horas = Math.floor(totalMin / 60)
+    const minutos = totalMin % 60
+    const segundos = Math.floor((diffMs % 60000) / 1000)
+
+    let duracao: string
+    if (horas > 0) {
+      duracao = `${horas}h ${String(minutos).padStart(2, '0')}min`
+    } else if (minutos > 0) {
+      duracao = `${minutos}min ${String(segundos).padStart(2, '0')}s`
+    } else {
+      duracao = `${segundos}s`
+    }
+
+    const fmtTime = (d: Date) =>
+      d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
+    return {
+      duracao,
+      inicio: fmtTime(dIni),
+      fim: fmtTime(dFim),
+    }
+  } catch {
+    return null
+  }
 }
 
 export function Auditoria() {
@@ -198,8 +248,8 @@ export function Auditoria() {
       {/* Search filters */}
       <div className="rounded-xl border border-border bg-card p-4 card-shadow">
         <div className="flex flex-wrap gap-3 items-end">
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Data da agenda</label>
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Data da agenda</label>
             <input
               type="date"
               value={dataAgenda}
@@ -208,7 +258,7 @@ export function Auditoria() {
             />
           </div>
           <div className="space-y-1 flex-1 min-w-48">
-            <label className="text-xs text-muted-foreground">Vendedor</label>
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Vendedor</label>
             <select
               value={idVendedor}
               onChange={(e) => setIdVendedor(e.target.value)}
@@ -295,7 +345,7 @@ export function Auditoria() {
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Início da Rota</label>
+                <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Início da Rota</label>
                 <input
                   type="time"
                   value={horaInicial}
@@ -305,7 +355,7 @@ export function Auditoria() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Fim da Rota</label>
+                <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Fim da Rota</label>
                 <input
                   type="time"
                   value={horaFim}
@@ -315,13 +365,13 @@ export function Auditoria() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Total de Horas</label>
+                <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Total de Horas</label>
                 <div className="h-10 px-3 rounded-lg border border-border bg-muted/40 flex items-center font-mono text-sm tabular-nums">
                   {computeTotalHora()}
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Incluir horário de almoço</label>
+                <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">Incluir horário de almoço</label>
                 <label className="h-10 px-3 rounded-lg border border-border bg-background flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -352,56 +402,71 @@ export function Auditoria() {
                     <th className="px-3 py-3 font-medium">Razão</th>
                     <th className="px-3 py-3 font-medium">Bairro</th>
                     <th className="px-3 py-3 font-medium">Cidade</th>
-                    <th className="px-3 py-3 font-medium">Horário</th>
+                    <th className="px-3 py-3 font-medium">Permanência</th>
                     <th className="px-3 py-3 font-medium">Status</th>
                     <th className="px-3 py-3 font-medium">Observação</th>
                     <th className="px-3 py-3 font-medium text-center">Ver</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {visitasEdit.map((v) => (
-                    <tr key={v.id_ad} className="hover:bg-muted/30 align-top">
-                      <td className="px-3 py-3 tabular-nums">{v.id_clientes ?? '-'}</td>
-                      <td className="px-3 py-3">{v.cliente?.Razao ?? '-'}</td>
-                      <td className="px-3 py-3">{v.cliente?.Bairro ?? '-'}</td>
-                      <td className="px-3 py-3">{v.cliente?.Cidade ?? '-'}</td>
-                      <td className="px-3 py-3 tabular-nums">
-                        {v.data_hora_atendimento ? new Date(v.data_hora_atendimento).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '-'}
-                      </td>
-                      <td className="px-3 py-2 min-w-40">
-                        <select
-                          value={v.status_atendimento ?? 'Pendente'}
-                          onChange={(e) => updateVisita(v.id_ad, { status_atendimento: e.target.value })}
-                          disabled={readOnly}
-                          className={`w-full h-9 px-2 rounded-md border border-border bg-background text-xs font-medium focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60 ${
-                            v.status_atendimento === 'Realizado'
-                              ? 'text-green-700 bg-green-50'
-                              : v.status_atendimento === 'Cancelado'
-                              ? 'text-red-700 bg-red-50'
-                              : 'text-amber-700 bg-amber-50'
-                          }`}
-                        >
-                          <option value="Pendente">Pendente</option>
-                          <option value="Pendente Auditoria">Pendente Auditoria</option>
-                          <option value="Realizado">Realizado</option>
-                          <option value="Cancelado">Cancelado</option>
-                        </select>
-                      </td>
-                      <td className="px-3 py-2 min-w-48">
-                        <input
-                          type="text"
-                          value={v.observacao ?? ''}
-                          onChange={(e) => updateVisita(v.id_ad, { observacao: e.target.value })}
-                          disabled={readOnly}
-                          placeholder="—"
-                          className="w-full h-9 px-2 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <ViewMapButton visita={v} />
-                      </td>
-                    </tr>
-                  ))}
+                  {visitasEdit.map((v) => {
+                    const perm = formatPermanencia(v.data_hora_atendimento_inicio ?? v.data_hora_atendimento, v.data_hora_atendimento_fim)
+                    return (
+                      <tr key={v.id_ad} className="hover:bg-muted/30 align-top">
+                        <td className="px-3 py-3 tabular-nums">{v.id_clientes ?? '-'}</td>
+                        <td className="px-3 py-3">{v.cliente?.Razao ?? '-'}</td>
+                        <td className="px-3 py-3">{v.cliente?.Bairro ?? '-'}</td>
+                        <td className="px-3 py-3">{v.cliente?.Cidade ?? '-'}</td>
+                        <td className="px-3 py-3 tabular-nums text-xs">
+                          {perm ? (
+                            <span className="inline-flex flex-col leading-tight">
+                              <span className="font-medium text-foreground">{perm.duracao}</span>
+                              <span className="text-muted-foreground text-[10px]">
+                                {perm.inicio} → {perm.fim}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 min-w-40">
+                          <select
+                            value={v.status_atendimento ?? 'Pendente'}
+                            onChange={(e) => updateVisita(v.id_ad, { status_atendimento: e.target.value })}
+                            disabled={readOnly}
+                            className={`w-full h-9 px-2 rounded-md border border-border bg-background text-xs font-medium focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60 ${
+                              v.status_atendimento === 'Realizado'
+                                ? 'text-green-700 bg-green-50'
+                                : v.status_atendimento === 'Cancelado'
+                                ? 'text-red-700 bg-red-50'
+                                : v.status_atendimento === 'Em Atendimento'
+                                ? 'text-blue-700 bg-blue-50'
+                                : 'text-amber-700 bg-amber-50'
+                            }`}
+                          >
+                            <option value="Pendente">Pendente</option>
+                            <option value="Pendente Auditoria">Pendente Auditoria</option>
+                            <option value="Em Atendimento">Em Atendimento</option>
+                            <option value="Realizado">Realizado</option>
+                            <option value="Cancelado">Cancelado</option>
+                          </select>
+                        </td>
+                        <td className="px-3 py-2 min-w-48">
+                          <input
+                            type="text"
+                            value={v.observacao ?? ''}
+                            onChange={(e) => updateVisita(v.id_ad, { observacao: e.target.value })}
+                            disabled={readOnly}
+                            placeholder="—"
+                            className="w-full h-9 px-2 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <ViewMapButton visita={v} />
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -469,6 +534,24 @@ function Card({ label, value, accent }: { label: string; value: string; accent?:
   )
 }
 
+/**
+ * Convert a Google Drive "uc?id=XXX" URL to a thumbnail URL that reliably
+ * renders in <img> tags (browsers block the raw "uc?id=" endpoint as a
+ * cross-origin download). Falls back to the original URL if it's not a
+ * Google Drive link.
+ */
+function toImageUrl(loc: string | null | undefined): string | null {
+  if (!loc) return null
+  // Google Drive "uc?id=XXX" format → use thumbnail endpoint
+  const m = loc.match(/drive\.google\.com\/uc\?id=([a-zA-Z0-9_-]+)/)
+  if (m) {
+    // Use the thumbnail endpoint with a large size; this reliably renders
+    // in <img> tags cross-origin.
+    return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000`
+  }
+  return loc
+}
+
 function ViewMapButton({ visita }: { visita: Visita }) {
   const [open, setOpen] = useState(false)
   const [fotos, setFotos] = useState<FotoVis[]>([])
@@ -479,11 +562,13 @@ function ViewMapButton({ visita }: { visita: Visita }) {
   const lng = visita.longitude
   const hasCoords = lat && lng
 
+  // Compute permanence for header display
+  const perm = formatPermanencia(
+    visita.data_hora_atendimento_inicio ?? visita.data_hora_atendimento,
+    visita.data_hora_atendimento_fim
+  )
+
   async function openPopup() {
-    if (!hasCoords) {
-      toast.info('Sem coordenadas cadastradas para esta visita.')
-      return
-    }
     setOpen(true)
     // Fetch photos from fotos_vis table
     if (visita.id_ad) {
@@ -530,19 +615,43 @@ function ViewMapButton({ visita }: { visita: Visita }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b border-border flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold text-foreground">{visita.cliente?.Razao ?? `Cliente #${visita.id_clientes}`}</h3>
+              <div className="min-w-0">
+                <h3 className="font-semibold text-foreground truncate">{visita.cliente?.Razao ?? `Cliente #${visita.id_clientes}`}</h3>
                 {hasCoords && (
                   <p className="text-xs text-muted-foreground">
                     Lat: {lat} • Lng: {lng}
                   </p>
                 )}
               </div>
-              <button onClick={() => setOpen(false)} className="p-2 hover:bg-muted rounded-md">
+              <button onClick={() => setOpen(false)} className="p-2 hover:bg-muted rounded-md shrink-0">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-4 space-y-4">
+              {/* Atendimento info (início, fim, permanência) */}
+              {perm && (
+                <div className="rounded-lg bg-primary/5 border border-primary/20 p-3">
+                  <div className="text-xs font-semibold text-primary uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" />
+                    Atendimento
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Início</div>
+                      <div className="font-semibold text-foreground tabular-nums">{perm.inicio}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Fim</div>
+                      <div className="font-semibold text-foreground tabular-nums">{perm.fim}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Permanência</div>
+                      <div className="font-bold text-primary tabular-nums">{perm.duracao}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {hasCoords && (
                 <div className="rounded-lg overflow-hidden border border-border">
                   <iframe
@@ -575,22 +684,41 @@ function ViewMapButton({ visita }: { visita: Visita }) {
                             <div className="text-xs text-muted-foreground/60">—</div>
                           ) : (
                             <div className="grid grid-cols-3 gap-2">
-                              {list.map((f) => (
-                                <button
-                                  key={f.id_foto}
-                                  onClick={() => setLightbox(f)}
-                                  className="relative aspect-square rounded-lg overflow-hidden border border-border hover:border-primary transition group"
-                                >
-                                  <img
-                                    src={f.Loc_Foto ?? ''}
-                                    alt={f.Nome_Foto ?? `Foto ${f.id_foto}`}
-                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                                    onError={(e) => {
-                                      ;(e.target as HTMLImageElement).style.display = 'none'
-                                    }}
-                                  />
-                                </button>
-                              ))}
+                              {list.map((f) => {
+                                const url = toImageUrl(f.Loc_Foto)
+                                return (
+                                  <button
+                                    key={f.id_foto}
+                                    onClick={() => setLightbox(f)}
+                                    className="relative aspect-square rounded-lg overflow-hidden border border-border hover:border-primary transition group bg-muted/30"
+                                  >
+                                    {url ? (
+                                      <img
+                                        src={url}
+                                        alt={f.Nome_Foto ?? `Foto ${f.id_foto}`}
+                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                        loading="lazy"
+                                        onError={(e) => {
+                                          // Fallback: replace with Nome_Foto text and broken-image styling
+                                          const img = e.target as HTMLImageElement
+                                          img.style.display = 'none'
+                                          const parent = img.parentElement
+                                          if (parent && !parent.querySelector('.foto-fallback')) {
+                                            const fallback = document.createElement('div')
+                                            fallback.className = 'foto-fallback absolute inset-0 flex items-center justify-center text-xs text-muted-foreground p-2 text-center'
+                                            fallback.textContent = 'Falha ao carregar'
+                                            parent.appendChild(fallback)
+                                          }
+                                        }}
+                                      />
+                                    ) : (
+                                      <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground p-2 text-center">
+                                        Sem URL
+                                      </div>
+                                    )}
+                                  </button>
+                                )
+                              })}
                             </div>
                           )}
                         </div>
@@ -617,7 +745,7 @@ function ViewMapButton({ visita }: { visita: Visita }) {
             <X className="w-6 h-6" />
           </button>
           <img
-            src={lightbox.Loc_Foto ?? ''}
+            src={toImageUrl(lightbox.Loc_Foto) ?? ''}
             alt={lightbox.Nome_Foto ?? `Foto ${lightbox.id_foto}`}
             className="max-w-full max-h-full object-contain"
             onClick={(e) => e.stopPropagation()}

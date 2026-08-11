@@ -131,19 +131,51 @@ export async function POST(req: NextRequest) {
       byDate.set(p.data_agenda, list)
     }
 
+    // For each date, check if there's already an agenda for this vendedor.
+    // If yes → skip (add to `skippedDates`). If no → create.
     const createdIds: number[] = []
+    const skippedDates: { data_agenda: string; existing_id: number }[] = []
     for (const [data_agenda, items] of byDate.entries()) {
       const [y, m] = data_agenda.split('-')
       const mes_referencia = `${m}-${y}`
-      const id = await createAgendaWithVisitas({
-        id_gerente: Number(id_gerente),
-        id_vendedor: Number(id_vendedor),
-        data_agenda,
-        placa,
-        mes_referencia,
-        visitas: items.map((p) => ({ id_clientes: p.id_clientes })),
-      })
-      createdIds.push(id)
+
+      // Pre-check duplicate (avoid the throw inside createAgendaWithVisitas so
+      // we can continue with other dates and report skipped ones).
+      const { findExistingAgendaForVendedor } = await import('@/lib/datasource')
+      const existingId = await findExistingAgendaForVendedor(Number(id_vendedor), data_agenda)
+      if (existingId !== null) {
+        skippedDates.push({ data_agenda, existing_id: existingId })
+        continue
+      }
+
+      try {
+        const id = await createAgendaWithVisitas({
+          id_gerente: Number(id_gerente),
+          id_vendedor: Number(id_vendedor),
+          data_agenda,
+          placa,
+          mes_referencia,
+          visitas: items.map((p) => ({ id_clientes: p.id_clientes })),
+        })
+        createdIds.push(id)
+      } catch (e: any) {
+        // If it's a duplicate (race condition or check missed it), add to skipped list
+        if (e.code === 'DUPLICATE_AGENDA' && e.existingId) {
+          skippedDates.push({ data_agenda, existing_id: e.existingId })
+          continue
+        }
+        // Other errors → re-throw to be caught by the outer try/catch
+        throw e
+      }
+    }
+
+    // Build the response — include a human-readable summary when there are skipped dates.
+    let mensagem: string | undefined
+    if (skippedDates.length > 0) {
+      const datas = skippedDates
+        .map((s) => `${s.data_agenda.split('-').reverse().join('/')} (agenda #${s.existing_id})`)
+        .join(', ')
+      mensagem = `Importação concluída com ${createdIds.length} agenda(s). ${skippedDates.length} data(s) não foram importadas pois já possuem agenda: ${datas}. Consulte a Lista de Agendas para modificá-las.`
     }
 
     return NextResponse.json({
@@ -151,6 +183,8 @@ export async function POST(req: NextRequest) {
       total_agendas: createdIds.length,
       total_visitas: parsed.length,
       id_agendas: createdIds,
+      skipped_dates: skippedDates,
+      mensagem,
     })
   } catch (err: any) {
     console.error('[agenda/import] error:', err)

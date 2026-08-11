@@ -63,8 +63,11 @@ model ag_agenda_diaria {
   id_ad              Int      @id @default(autoincrement())
   id_a               Int?
   id_clientes        Int?
-  status_atendimento String?  // 'Pendente' | 'Pendente Auditoria' | 'Realizado' | 'Cancelado'
-  data_hora_atendimento DateTime?
+  status_atendimento String?  // 'Pendente' | 'Pendente Auditoria' | 'Em Atendimento' | 'Realizado' | 'Cancelado'
+  // ⚠️ Renamed from data_hora_atendimento to data_hora_atendimento_inicio (timestamp without time zone)
+  // + added data_hora_atendimento_fim (timestamp without time zone)
+  data_hora_atendimento_inicio DateTime?
+  data_hora_atendimento_fim    DateTime?
   observacao         String?
   latitude           String?
   longitude          String?
