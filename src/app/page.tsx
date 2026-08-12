@@ -8,6 +8,8 @@ import { Dashboard } from '@/components/lamoia/Dashboard'
 import { Auditoria } from '@/components/lamoia/Auditoria'
 import { CadastroAgenda } from '@/components/lamoia/CadastroAgenda'
 import { ListaAgendas } from '@/components/lamoia/ListaAgendas'
+import { AcompanhamentoVendedores } from '@/components/lamoia/AcompanhamentoVendedores'
+import { Usuarios } from '@/components/lamoia/Usuarios'
 import type { SessionPayload } from '@/lib/auth'
 
 const TITLES: Record<ModuleKey, { title: string; subtitle: string }> = {
@@ -15,6 +17,25 @@ const TITLES: Record<ModuleKey, { title: string; subtitle: string }> = {
   auditoria: { title: 'Auditoria', subtitle: 'Audite as agendas de visita' },
   cadastro: { title: 'Cadastro de Agenda', subtitle: 'Nova agenda manual ou via Excel' },
   lista: { title: 'Lista de Agendas', subtitle: 'Consulte e gerencie as agendas' },
+  acompanhamento: { title: 'Acompanhamento de Vendedores', subtitle: 'Carteira, desempenho e produtividade' },
+  usuarios: { title: 'Usuários', subtitle: 'Gestão de cadastro e acessos' },
+}
+
+/**
+ * Access control: returns the list of modules a user type can access.
+ * Mirrors the same matrix used in the Sidebar component.
+ */
+function getAllowedModules(tipo: string | null | undefined): ModuleKey[] {
+  if (tipo === 'Admin Senior') {
+    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'usuarios']
+  }
+  if (tipo === 'Admin Junior') {
+    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento']
+  }
+  if (tipo === 'Comercial') {
+    return ['dashboard', 'cadastro', 'lista', 'acompanhamento']
+  }
+  return ['dashboard']
 }
 
 export default function Home() {
@@ -51,6 +72,19 @@ export default function Home() {
     setSession(null)
     setModule('dashboard')
   }
+
+  /**
+   * Guard: if the current module is not allowed for the user's type,
+   * redirect to dashboard.
+   */
+  useEffect(() => {
+    if (session) {
+      const allowed = getAllowedModules(session.Tipo)
+      if (!allowed.includes(module)) {
+        setModule('dashboard')
+      }
+    }
+  }, [session, module])
 
   if (loading) {
     return (
@@ -95,6 +129,13 @@ export default function Home() {
           {module === 'auditoria' && <Auditoria />}
           {module === 'cadastro' && <CadastroAgenda />}
           {module === 'lista' && <ListaAgendas />}
+          {module === 'acompanhamento' && (
+            <AcompanhamentoVendedores
+              isComercial={session.Tipo === 'Comercial'}
+              userId={session.id_user}
+            />
+          )}
+          {module === 'usuarios' && <Usuarios />}
         </main>
       </div>
     </div>

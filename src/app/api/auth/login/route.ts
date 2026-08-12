@@ -23,18 +23,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Diagnostic: confirm Supabase is configured
+    // Diagnostic: log whether Supabase is configured (for debugging Netlify issues).
+    // Don't block the request — the app falls back to local SQLite if Supabase is not configured.
     if (!isSupabaseEnabled()) {
-      console.error('[login] Supabase env vars not configured')
-      return NextResponse.json(
-        {
-          sucesso: false,
-          mensagem:
-            'Erro de configuração: as variáveis de ambiente do Supabase não estão definidas. ' +
-            'Verifique NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY e SUPABASE_SERVICE_ROLE_KEY no Netlify.',
-        },
-        { status: 500 }
-      )
+      console.warn('[login] Supabase env vars not configured — falling back to local SQLite.')
     }
 
     const result = await validateLogin(String(login).trim(), String(senha))

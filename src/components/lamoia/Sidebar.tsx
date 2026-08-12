@@ -1,10 +1,10 @@
 'use client'
 
-import { LayoutDashboard, FileCheck2, CalendarPlus, ListChecks, LogOut, X } from 'lucide-react'
+import { LayoutDashboard, FileCheck2, CalendarPlus, ListChecks, LogOut, X, LineChart, Users } from 'lucide-react'
 import Image from 'next/image'
 import type { SessionPayload } from '@/lib/auth'
 
-export type ModuleKey = 'dashboard' | 'auditoria' | 'cadastro' | 'lista'
+export type ModuleKey = 'dashboard' | 'auditoria' | 'cadastro' | 'lista' | 'acompanhamento' | 'usuarios'
 
 interface SidebarProps {
   current: ModuleKey
@@ -15,13 +15,41 @@ interface SidebarProps {
   onClose: () => void
 }
 
+/**
+ * Access control matrix — determines which modules each user type can see.
+ *
+ * | Tipo          | Dashboard | Auditoria | Cadastro | Lista | Acompanhamento | Usuários |
+ * |---------------|-----------|-----------|----------|-------|----------------|----------|
+ * | Admin Senior  | ✅        | ✅        | ✅       | ✅    | ✅             | ✅       |
+ * | Admin Junior  | ✅        | ✅        | ✅       | ✅    | ✅             | ❌       |
+ * | Comercial     | ✅        | ❌        | ✅       | ✅    | ✅             | ❌       |
+ */
+function getAllowedModules(tipo: string | null | undefined): ModuleKey[] {
+  if (tipo === 'Admin Senior') {
+    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'usuarios']
+  }
+  if (tipo === 'Admin Junior') {
+    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento']
+  }
+  if (tipo === 'Comercial') {
+    return ['dashboard', 'cadastro', 'lista', 'acompanhamento']
+  }
+  // Fallback: only dashboard
+  return ['dashboard']
+}
+
 export function Sidebar({ current, onNavigate, session, onLogout, isOpen, onClose }: SidebarProps) {
-  const items: { key: ModuleKey; label: string; icon: any; description: string }[] = [
+  const allItems: { key: ModuleKey; label: string; icon: any; description: string }[] = [
     { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, description: 'Indicadores gerais' },
     { key: 'auditoria', label: 'Auditoria', icon: FileCheck2, description: 'Auditar agendas' },
     { key: 'cadastro', label: 'Cadastro de Agenda', icon: CalendarPlus, description: 'Nova agenda' },
     { key: 'lista', label: 'Lista de Agendas', icon: ListChecks, description: 'Agendas cadastradas' },
+    { key: 'acompanhamento', label: 'Acompanhamento', icon: LineChart, description: 'Vendedores' },
+    { key: 'usuarios', label: 'Usuários', icon: Users, description: 'Gestão de acessos' },
   ]
+
+  const allowedModules = getAllowedModules(session?.Tipo)
+  const items = allItems.filter((item) => allowedModules.includes(item.key))
 
   return (
     <>

@@ -167,6 +167,143 @@ export async function getUserById(id_user: number): Promise<User | null> {
   return (await db.users.findUnique({ where: { id_user } })) as unknown as User | null
 }
 
+/**
+ * List ALL users (for the Users management screen).
+ * Optionally filter by Tipo (e.g., ['Users', 'Comercial', 'Admin Senior', 'Admin Junior']).
+ */
+export async function listAllUsers(tipos?: string[]): Promise<User[]> {
+  if (isSupabaseEnabled()) {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const sb = getSupabaseAdmin()
+    let q = sb.from('Users').select('*').order('Nome')
+    if (tipos && tipos.length > 0) {
+      q = q.in('Tipo', tipos)
+    }
+    const { data, error } = await q
+    if (error) throw error
+    return (data as User[]) ?? []
+  }
+  const where: any = {}
+  if (tipos && tipos.length > 0) {
+    where.Tipo = { in: tipos }
+  }
+  const rows = await db.users.findMany({ where, orderBy: { Nome: 'asc' } })
+  return rows as unknown as User[]
+}
+
+/**
+ * Create a new user. Hashes the password with bcrypt before saving.
+ * Throws if the login already exists.
+ */
+export async function createUser(payload: {
+  Login: string
+  Senha: string
+  Tipo: string
+  Nome: string
+  Status: string // 'a' or 'i'
+}): Promise<{ id_user: number }> {
+  // Check if login already exists
+  const existing = await findUserByLogin(payload.Login)
+  if (existing) {
+    const err: any = new Error(`Login "${payload.Login}" já está em uso. Escolha outro login.`)
+    err.code = 'DUPLICATE_LOGIN'
+    throw err
+  }
+
+  // Hash password with bcrypt
+  const hashedSenha = await bcrypt.hash(payload.Senha, 10)
+
+  if (isSupabaseEnabled()) {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const sb = getSupabaseAdmin()
+    const { data, error } = await sb
+      .from('Users')
+      .insert({
+        Login: payload.Login,
+        Senha: hashedSenha,
+        Tipo: payload.Tipo,
+        Nome: payload.Nome,
+        Status: payload.Status,
+        created_at: new Date().toISOString(),
+      })
+      .select('id_user')
+      .single()
+    if (error) throw error
+    return { id_user: (data as { id_user: number }).id_user }
+  }
+
+  // Prisma
+  const created = await db.users.create({
+    data: {
+      Login: payload.Login,
+      Senha: hashedSenha,
+      Tipo: payload.Tipo,
+      Nome: payload.Nome,
+      Status: payload.Status,
+    },
+  })
+  return { id_user: created.id_user }
+}
+
+/**
+ * Update an existing user. If a new password is provided, hashes it with bcrypt.
+ * If senha is null/undefined/empty, keeps the existing password.
+ */
+export async function updateUser(id_user: number, payload: {
+  Login?: string
+  Senha?: string | null  // if provided and non-empty, update password
+  Tipo?: string
+  Nome?: string
+  Status?: string
+}): Promise<void> {
+  // If updating Login, check for duplicates (excluding current user)
+  if (payload.Login) {
+    const existing = await findUserByLogin(payload.Login)
+    if (existing && existing.id_user !== id_user) {
+      const err: any = new Error(`Login "${payload.Login}" já está em uso por outro usuário.`)
+      err.code = 'DUPLICATE_LOGIN'
+      throw err
+    }
+  }
+
+  // Build update data
+  const updateData: any = {}
+  if (payload.Login !== undefined) updateData.Login = payload.Login
+  if (payload.Tipo !== undefined) updateData.Tipo = payload.Tipo
+  if (payload.Nome !== undefined) updateData.Nome = payload.Nome
+  if (payload.Status !== undefined) updateData.Status = payload.Status
+  if (payload.Senha) {
+    // Only hash and update if a new password was provided
+    updateData.Senha = await bcrypt.hash(payload.Senha, 10)
+  }
+
+  if (isSupabaseEnabled()) {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const sb = getSupabaseAdmin()
+    const { error } = await sb.from('Users').update(updateData).eq('id_user', id_user)
+    if (error) throw error
+    return
+  }
+
+  // Prisma
+  await db.users.update({ where: { id_user }, data: updateData })
+}
+
+/**
+ * Delete a user by id_user.
+ * Throws if the user doesn't exist.
+ */
+export async function deleteUser(id_user: number): Promise<void> {
+  if (isSupabaseEnabled()) {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const sb = getSupabaseAdmin()
+    const { error } = await sb.from('Users').delete().eq('id_user', id_user)
+    if (error) throw error
+    return
+  }
+  await db.users.delete({ where: { id_user } })
+}
+
 // ============================================================================
 // CLIENTES
 // ============================================================================
@@ -515,7 +652,7 @@ function dateToTime(value: any): string | null {
  * We must NEVER use `toISOString()` for date-only fields — it converts to UTC midnight
  * which shifts the date backwards in Western timezones.
  */
-function localDateToYMD(value: any): string | null {
+export function localDateToYMD(value: any): string | null {
   if (!value) return null
   try {
     const d = value instanceof Date ? value : new Date(value)
