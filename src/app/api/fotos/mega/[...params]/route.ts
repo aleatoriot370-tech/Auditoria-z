@@ -17,18 +17,7 @@ export const dynamic = 'force-dynamic'
  *   4. File is AES-128-CTR encrypted
  */
 
-// In-memory cache
-const cache = new Map<string, { data: Buffer; mime: string; ts: number }>()
-const CACHE_TTL = 24 * 60 * 60 * 1000
-const MAX_CACHE = 200
-
-function evictCache() {
-  if (cache.size <= MAX_CACHE) return
-  const now = Date.now()
-  for (const [k, v] of cache) {
-    if (now - v.ts > CACHE_TTL) cache.delete(k)
-  }
-}
+// No server-side cache — browser cache handles it via Cache-Control headers.
 
 // ── MEGA crypto helpers ─────────────────────────────────────────────
 
@@ -162,28 +151,15 @@ export async function GET(
     if (m2) { fid = m2[1]; k = m2[2] }
   }
 
-  // Check cache
-  const ck = fid
-  const cached = cache.get(ck)
-  if (cached && Date.now() - cached.ts < CACHE_TTL) {
-    return new NextResponse(cached.data, {
-      headers: {
-        'Content-Type': cached.mime,
-        'Cache-Control': 'public, max-age=86400, immutable',
-        'X-Mega-Proxy': 'hit',
-      },
-    })
-  }
-
   try {
     const { data, mime } = await downloadMegaFile(fid, k)
-    evictCache()
-    cache.set(ck, { data, mime, ts: Date.now() })
     return new NextResponse(data, {
       headers: {
         'Content-Type': mime,
-        'Cache-Control': 'public, max-age=86400, immutable',
-        'X-Mega-Proxy': 'miss',
+        // Browser cache: 7 dias. O browser gere a memória automaticamente.
+        // Imagens ficam em cache enquanto o popup está aberto/reatomado,
+        // e são libertadas quando o utilizador fecha a sessão.
+        'Cache-Control': 'public, max-age=604800, stale-while-revalidate=86400',
       },
     })
   } catch (err: any) {
