@@ -542,14 +542,35 @@ function Card({ label, value, accent }: { label: string; value: string; accent?:
  */
 function toImageUrl(loc: string | null | undefined): string | null {
   if (!loc) return null
-  // Google Drive "uc?id=XXX" format → use thumbnail endpoint
-  const m = loc.match(/drive\.google\.com\/uc\?id=([a-zA-Z0-9_-]+)/)
-  if (m) {
-    // Use the thumbnail endpoint with a large size; this reliably renders
-    // in <img> tags cross-origin.
-    return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000`
+  const trimmed = loc.trim()
+
+  // 1. Google Drive "uc?id=XXX" format → thumbnail endpoint
+  const m1 = trimmed.match(/drive\.google\.com\/uc\?id=([a-zA-Z0-9_-]+)/)
+  if (m1) {
+    return `https://drive.google.com/thumbnail?id=${m1[1]}&sz=w1000`
   }
-  return loc
+
+  // 2. Google Drive "file/d/ID/" format → thumbnail endpoint
+  const m2 = trimmed.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/)
+  if (m2) {
+    return `https://drive.google.com/thumbnail?id=${m2[1]}&sz=w1000`
+  }
+
+  // 3. lh3.googleusercontent.com/d/ID format (Google Drive direct view)
+  //    Convert to drive.google.com/thumbnail which works reliably in <img> tags
+  const m3 = trimmed.match(/lh\d*\.googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/)
+  if (m3) {
+    return `https://drive.google.com/thumbnail?id=${m3[1]}&sz=w1000`
+  }
+
+  // 4. MEGA links — cannot be embedded directly (requires JS decryption).
+  //    Return null so the UI shows "Sem URL" instead of a broken image.
+  if (/mega\.nz\//i.test(trimmed)) {
+    return null
+  }
+
+  // 5. Any other URL (direct image links, base64 data URIs, etc.) — use as-is
+  return trimmed
 }
 
 function ViewMapButton({ visita }: { visita: Visita }) {
