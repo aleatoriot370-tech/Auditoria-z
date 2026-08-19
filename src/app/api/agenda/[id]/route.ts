@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ erro: 'Agenda não encontrada.' }, { status: 404 })
     }
     const visitas = await getVisitasByAgendaId(id_agenda)
-    const canEdit = ['Admin Senior', 'Admin Junior'].includes(session.Tipo ?? '') && agenda.status_atual === 'Pendente'
+    const canEdit = ['Admin Senior', 'Admin Junior', 'Comercial'].includes(session.Tipo ?? '') && agenda.status_atual === 'Pendente'
 
     return NextResponse.json({ agenda, visitas, canEdit })
   } catch (err: any) {
@@ -41,7 +41,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ erro: 'Não autenticado' }, { status: 401 })
   }
 
-  if (!['Admin Senior', 'Admin Junior'].includes(session.Tipo ?? '')) {
+  if (!['Admin Senior', 'Admin Junior', 'Comercial'].includes(session.Tipo ?? '')) {
     return NextResponse.json(
       { erro: 'Sem permissão. Apenas administradores podem editar agendas.' },
       { status: 403 }
