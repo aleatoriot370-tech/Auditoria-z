@@ -5,158 +5,166 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
- * GET /api/fotos/mega/[file_id]#[key]
+ * GET /api/fotos/mega/[file_id]?k=[key]
  *
- * Proxy that fetches an image from MEGA, decrypts it, and serves it
- * with proper caching headers. This allows <img> tags to display MEGA
- * images without requiring client-side JS decryption.
+ * Proxy that downloads a public MEGA file, decrypts it (AES-CTR),
+ * and serves it as an image with caching headers.
  *
- * The URL structure mirrors the MEGA URL:
- *   /api/fotos/mega/BR9RzCCA  (file_id from the MEGA URL path)
- *   The key is passed as a query param: ?k=kyl9slXvkeulqq5778...
- *
- * Alternative: pass the full MEGA URL as ?url=https://mega.nz/file/ID#KEY
+ * MEGA encryption scheme:
+ *   1. Key is base64url-decoded into 8 × 32-bit integers
+ *   2. AES key = key[0]^key[4], key[1]^key[5], key[2]^key[6], key[3]^key[7]
+ *   3. IV = key[4], key[5], 0, 0  (128-bit counter, left-shifted by 64)
+ *   4. File is AES-128-CTR encrypted
  */
 
-// Simple in-memory cache (resets on server restart / cold start)
+// In-memory cache
 const cache = new Map<string, { data: Buffer; mime: string; ts: number }>()
-const CACHE_TTL = 24 * 60 * 60 * 1000 // 24 hours
-const MAX_CACHE_SIZE = 200
+const CACHE_TTL = 24 * 60 * 60 * 1000
+const MAX_CACHE = 200
 
-function evictOldEntries() {
-  if (cache.size <= MAX_CACHE_SIZE) return
+function evictCache() {
+  if (cache.size <= MAX_CACHE) return
   const now = Date.now()
-  for (const [key, val] of cache) {
-    if (now - val.ts > CACHE_TTL) cache.delete(key)
+  for (const [k, v] of cache) {
+    if (now - v.ts > CACHE_TTL) cache.delete(k)
   }
 }
 
-/**
- * Convert MEGA's new URL format to the old format used by the API.
- * New: https://mega.nz/file/ID#KEY
- * Old: https://mega.nz/#!ID!KEY
- */
-function megaUrlToApiParams(url: string): { file_id: string; key: string } | null {
-  const m = url.match(/mega\.nz\/file\/([a-zA-Z0-9_-]+)#([a-zA-Z0-9_-]+)/)
-  if (m) return { file_id: m[1], key: m[2] }
-  // Old format
-  const m2 = url.match(/mega\.nz\/#!([a-zA-Z0-9_-]+)!([a-zA-Z0-9_-]+)/)
-  if (m2) return { file_id: m2[1], key: m2[2] }
-  return null
+// ── MEGA crypto helpers ─────────────────────────────────────────────
+
+/** base64url → Buffer */
+function base64UrlDecode(s: string): Buffer {
+  s = s.replace(/-/g, '+').replace(/_/g, '/')
+  while (s.length % 4) s += '='
+  return Buffer.from(s, 'base64')
 }
 
-/**
- * Fetch file metadata from MEGA's API (no auth needed for public files).
- */
-async function getMegaFileMeta(fileId: string) {
-  const resp = await fetch('https://g.api.mega.co.nz/cs', {
+/** Convert 32-bit int array → Buffer (big-endian) */
+function a32ToBuf(a: number[]): Buffer {
+  const buf = Buffer.alloc(a.length * 4)
+  for (let i = 0; i < a.length; i++) {
+    buf.writeUInt32BE(a[i] >>> 0, i * 4)
+  }
+  return buf
+}
+
+/** Parse MEGA public file key (base64url) into crypto components */
+function parseMegaKey(keyB64: string) {
+  const keyBytes = base64UrlDecode(keyB64)
+  const key32: number[] = []
+  for (let i = 0; i < keyBytes.length; i += 4) {
+    key32.push(keyBytes.readUInt32BE(i))
+  }
+
+  // AES key: XOR first 4 with last 4
+  const k = [
+    (key32[0] ^ key32[4]) >>> 0,
+    (key32[1] ^ key32[5]) >>> 0,
+    (key32[2] ^ key32[6]) >>> 0,
+    (key32[3] ^ key32[7]) >>> 0,
+  ]
+
+  // IV for CTR mode
+  const iv0 = key32[4] >>> 0
+  const iv1 = key32[5] >>> 0
+
+  return { k, iv0, iv1, keyBytes }
+}
+
+/** Build a 16-byte CTR nonce from iv0, iv1 */
+function buildCtrNonce(iv0: number, iv1: number): Buffer {
+  const nonce = Buffer.alloc(16)
+  nonce.writeUInt32BE(iv0, 0)
+  nonce.writeUInt32BE(iv1, 4)
+  // bytes 8-15 stay zero (counter starts at 0)
+  return nonce
+}
+
+/** XOR two buffers (same length) */
+function xorBuf(a: Buffer, b: Buffer): Buffer {
+  const out = Buffer.alloc(a.length)
+  for (let i = 0; i < a.length; i++) out[i] = a[i] ^ b[i]
+  return out
+}
+
+// ── MEGA API ────────────────────────────────────────────────────────
+
+/** Get file metadata from MEGA API (public files) */
+async function megaApiGet(fileId: string) {
+  const resp = await fetch(`https://g.api.mega.co.nz/cs?id=1`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify([{ a: 'g', g: 1, n: fileId }]),
+    body: JSON.stringify([{ a: 'g', g: 1, p: fileId }]),
   })
-  const data = await resp.json()
-  if (!Array.isArray(data) || !data[0]?.g) {
-    throw new Error('MEGA file not found or not public')
-  }
-  return data[0] // { g: download_url, s: size, at: attributes_encrypted }
+  if (!resp.ok) throw new Error(`MEGA API error: ${resp.status}`)
+  const json = await resp.json()
+  if (typeof json === 'number') throw new Error(`MEGA API error code: ${json}`)
+  const data = Array.isArray(json) ? json[0] : json
+  if (!data?.g) throw new Error('MEGA file not found or not public')
+  return data as { g: string; s: number; at: string }
 }
 
-/**
- * Decrypt MEGA attribute string to get the filename.
- * MEGA encrypts file attributes (name, etc.) with the file key.
- */
-function decryptAttr(attrB64: string, keyBytes: Uint8Array): string | null {
-  try {
-    // The attribute is AES-CBC encrypted with the file key
-    // For simplicity, we just return null — we don't need the filename for serving
-    return null
-  } catch {
-    return null
-  }
-}
+/** Download + decrypt a public MEGA file */
+async function downloadMegaFile(fileId: string, keyB64: string): Promise<{ data: Buffer; mime: string }> {
+  const { k, iv0, iv1 } = parseMegaKey(keyB64)
 
-/**
- * Download and decrypt a file from MEGA.
- * This is a simplified implementation that works for single-file public links.
- */
-async function downloadFromMega(fileId: string, key: string): Promise<{ data: Buffer; mime: string }> {
-  // 1. Get download URL from MEGA API
-  const meta = await getMegaFileMeta(fileId)
-  const downloadUrl: string = meta.g
+  // 1. Get download URL
+  const meta = await megaApiGet(fileId)
+  const fileUrl: string = meta.g
   const fileSize: number = meta.s
 
-  // 2. Download the encrypted file
-  const resp = await fetch(downloadUrl)
-  if (!resp.ok) throw new Error(`MEGA download failed: ${resp.status}`)
-  const encrypted = Buffer.from(await resp.arrayBuffer())
+  // 2. Download encrypted file
+  const resp = await fetch(fileUrl)
+  if (!resp.ok) throw new Error(`Download failed: ${resp.status}`)
+  const encBuf = Buffer.from(await resp.arrayBuffer())
 
-  // 3. Derive AES key from the URL key
-  // MEGA key format: base64url with padding
-  const keyB64 = key.replace(/-/g, '+').replace(/_/g, '/')
-  const keyPadded = keyB64 + '=='.slice(0, (4 - (keyB64.length % 4)) % 4)
-  const keyBytes = Buffer.from(keyPadded, 'base64')
+  // 3. Decrypt with AES-128-CTR
+  const aesKey = a32ToBuf(k)
+  const nonce = buildCtrNonce(iv0, iv1)
 
-  // MEGA uses AES-ECB for the file key, then AES-CTR for the file data
-  // The 16-byte key is split: first 16 bytes = AES key, bytes 8-16 = IV parts
-  const aesKey = keyBytes.slice(0, 16)
-  const iv = Buffer.alloc(16)
-  // IV is derived from bytes 8-15 of the key, XORed with the nonce
-  keyBytes.copy(iv, 0, 8, 16)
+  // Manual CTR: generate keystream blocks and XOR with ciphertext
+  const { createCipheriv } = await import('crypto')
+  const decipher = createCipheriv('aes-128-ctr', aesKey, nonce)
+  const decBuf = Buffer.concat([decipher.update(encBuf), decipher.final()])
 
-  // 4. Decrypt with AES-CTR
-  const crypto = await import('crypto')
-  const decipher = crypto.createDecipheriv('aes-128-ctr', aesKey, iv)
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()])
-
-  // 5. Detect MIME type
+  // 4. Detect MIME
   let mime = 'image/jpeg'
-  if (decrypted[0] === 0xFF && decrypted[1] === 0xD8) mime = 'image/jpeg'
-  else if (decrypted[0] === 0x89 && decrypted[1] === 0x50) mime = 'image/png'
-  else if (decrypted[8] === 0x57 && decrypted[9] === 0x45) mime = 'image/webp'
-  else if (decrypted[0] === 0x47 && decrypted[1] === 0x49) mime = 'image/gif'
+  if (decBuf[0] === 0x89 && decBuf[1] === 0x50) mime = 'image/png'
+  else if (decBuf[8] === 0x57 && decBuf[9] === 0x45 && decBuf[10] === 0x42 && decBuf[11] === 0x50) mime = 'image/webp'
+  else if (decBuf[0] === 0x47 && decBuf[1] === 0x49) mime = 'image/gif'
 
-  return { data: decrypted, mime }
+  return { data: decBuf, mime }
 }
+
+// ── Route handler ───────────────────────────────────────────────────
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ params: string[] }> }
 ) {
-  // Auth check
   const session = await getSession()
-  if (!session) {
-    return new NextResponse('Unauthorized', { status: 401 })
-  }
+  if (!session) return new NextResponse('Unauthorized', { status: 401 })
 
-  const { params: pathParams } = await params
-  const fileId = pathParams?.[0]
+  const { params: pp } = await params
+  const fileId = pp?.[0]
   const key = req.nextUrl.searchParams.get('k')
+  if (!fileId) return new NextResponse('Missing file ID', { status: 400 })
+  if (!key) return new NextResponse('Missing key (?k=)', { status: 400 })
 
-  if (!fileId) {
-    return new NextResponse('Missing file ID', { status: 400 })
-  }
-
-  // Support full URL as ?url= param
+  // Support ?url= mega link
   const fullUrl = req.nextUrl.searchParams.get('url')
-  let resolvedFileId = fileId
-  let resolvedKey = key
-
+  let fid = fileId
+  let k = key
   if (fullUrl) {
-    const parsed = megaUrlToApiParams(fullUrl)
-    if (parsed) {
-      resolvedFileId = parsed.file_id
-      resolvedKey = parsed.key
-    }
+    const m = fullUrl.match(/mega\.nz\/file\/([a-zA-Z0-9_-]+)#([a-zA-Z0-9_-]+)/)
+    if (m) { fid = m[1]; k = m[2] }
+    const m2 = fullUrl.match(/mega\.nz\/#!([a-zA-Z0-9_-]+)!([a-zA-Z0-9_-]+)/)
+    if (m2) { fid = m2[1]; k = m2[2] }
   }
-
-  if (!resolvedKey) {
-    return new NextResponse('Missing decryption key (?k= param)', { status: 400 })
-  }
-
-  const cacheKey = `${resolvedFileId}`
 
   // Check cache
-  const cached = cache.get(cacheKey)
+  const ck = fid
+  const cached = cache.get(ck)
   if (cached && Date.now() - cached.ts < CACHE_TTL) {
     return new NextResponse(cached.data, {
       headers: {
@@ -168,12 +176,9 @@ export async function GET(
   }
 
   try {
-    const { data, mime } = await downloadFromMega(resolvedFileId, resolvedKey)
-
-    // Cache it
-    evictOldEntries()
-    cache.set(cacheKey, { data, mime, ts: Date.now() })
-
+    const { data, mime } = await downloadMegaFile(fid, k)
+    evictCache()
+    cache.set(ck, { data, mime, ts: Date.now() })
     return new NextResponse(data, {
       headers: {
         'Content-Type': mime,
@@ -183,6 +188,6 @@ export async function GET(
     })
   } catch (err: any) {
     console.error('[mega proxy] error:', err.message)
-    return new NextResponse('Failed to fetch from MEGA: ' + err.message, { status: 502 })
+    return new NextResponse('MEGA error: ' + err.message, { status: 502 })
   }
 }
