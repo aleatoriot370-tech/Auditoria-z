@@ -26,10 +26,10 @@ interface SidebarProps {
  */
 function getAllowedModules(tipo: string | null | undefined): ModuleKey[] {
   if (tipo === 'Admin Senior') {
-    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'usuarios']
+    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'usuarios', 'alteracao-rota']
   }
   if (tipo === 'Admin Junior') {
-    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento']
+    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'alteracao-rota']
   }
   if (tipo === 'Comercial') {
     return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'alteracao-rota']
