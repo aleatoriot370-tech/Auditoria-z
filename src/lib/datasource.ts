@@ -1245,3 +1245,186 @@ export async function getRecentAuditorias(filters: DashboardFilters): Promise<Au
       data_aud: a.data_aud,
     }))
 }
+
+// ============================================================================
+// ALTERAÇÃO DE DATA DE ROTA
+// ============================================================================
+
+export type AlteracaoRotaError = {
+  code: string
+  message: string
+}
+
+/**
+ * Change the date of a single agenda.
+ *
+ * Rules:
+ *  1. Agenda must NOT be Finalizado
+ *  2. All visitas must have status_atendimento = 'Pendente'
+ *  3. Target date must NOT already have an agenda for the same vendedor
+ *  4. Target date must NOT be in the past
+ */
+export async function changeAgendaDate(
+  id_agenda: number,
+  novaData: string // YYYY-MM-DD
+): Promise<void> {
+  // 1. Fetch agenda
+  const agenda = await getAgendaById(id_agenda)
+  if (!agenda) {
+    const err: any = new Error('Agenda não encontrada.')
+    err.code = 'AGENDA_NOT_FOUND'
+    throw err
+  }
+
+  // 2. Cannot be Finalizado
+  if (agenda.status_atual === 'Finalizado') {
+    const err: any = new Error('Não é possível alterar a data de uma agenda finalizada.')
+    err.code = 'AGENDA_FINALIZED'
+    throw err
+  }
+
+  // 3. All visitas must be Pendente
+  const visitas = await getVisitasByAgendaId(id_agenda)
+  const nonPendente = visitas.filter((v) => v.status_atendimento !== 'Pendente')
+  if (nonPendente.length > 0) {
+    const err: any = new Error(
+      `Não é possível alterar: ${nonPendente.length} visita(s) com status diferente de "Pendente".`
+    )
+    err.code = 'VISITAS_NOT_PENDENTE'
+    throw err
+  }
+
+  // 4. Target date must not be in the past
+  const today = new Date().toISOString().slice(0, 10)
+  if (novaData < today) {
+    const err: any = new Error('Não é possível alterar a data para uma data anterior a hoje.')
+    err.code = 'DATE_IN_PAST'
+    throw err
+  }
+
+  // 5. Check if vendedor already has an agenda on the target date
+  if (agenda.id_vendedor) {
+    const existingId = await findExistingAgendaForVendedor(agenda.id_vendedor, novaData)
+    if (existingId !== null && existingId !== id_agenda) {
+      const err: any = new Error(
+        `Já existe uma agenda (#${existingId}) para este vendedor na data ${novaData.split('-').reverse().join('/')}.`
+      )
+      err.code = 'DUPLICATE_DATE'
+      throw err
+    }
+  }
+
+  // 6. Update the date
+  if (isSupabaseEnabled()) {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const sb = getSupabaseAdmin()
+    const { error } = await sb
+      .from('ag_agenda')
+      .update({ data_agenda: novaData })
+      .eq('id_agenda', id_agenda)
+    if (error) throw error
+    return
+  }
+
+  await db.ag_agenda.update({
+    where: { id_agenda },
+    data: { data_agenda: new Date(`${novaData}T00:00:00`) },
+  })
+}
+
+/**
+ * Swap dates between two agendas.
+ *
+ * Rules for BOTH agendas:
+ *  1. Must NOT be Finalizado
+ *  2. All visitas must have status_atendimento = 'Pendente'
+ */
+export async function swapAgendaDates(
+  id_agenda_1: number,
+  id_agenda_2: number
+): Promise<void> {
+  if (id_agenda_1 === id_agenda_2) {
+    const err: any = new Error('As duas agendas devem ser diferentes.')
+    err.code = 'SAME_AGENDA'
+    throw err
+  }
+
+  // Fetch both agendas
+  const agenda1 = await getAgendaById(id_agenda_1)
+  const agenda2 = await getAgendaById(id_agenda_2)
+
+  if (!agenda1 || !agenda2) {
+    const err: any = new Error('Uma ou ambas as agendas não foram encontradas.')
+    err.code = 'AGENDA_NOT_FOUND'
+    throw err
+  }
+
+  // Both agendas must belong to the same vendedor
+  if (agenda1.id_vendedor !== agenda2.id_vendedor) {
+    const err: any = new Error(
+      `As agendas #${agenda1.id_agenda} e #${agenda2.id_agenda} pertencem a vendedores diferentes. A troca só é permitida entre agendas do mesmo vendedor.`
+    )
+    err.code = 'DIFFERENT_VENDORS'
+    throw err
+  }
+
+  // Validate both agendas
+  for (const agenda of [agenda1, agenda2]) {
+    if (agenda.status_atual === 'Finalizado') {
+      const err: any = new Error(
+        `Agenda #${agenda.id_agenda} está finalizada. Não é possível trocar datas de agendas finalizadas.`
+      )
+      err.code = 'AGENDA_FINALIZED'
+      throw err
+    }
+
+    const visitas = await getVisitasByAgendaId(agenda.id_agenda)
+    const nonPendente = visitas.filter((v) => v.status_atendimento !== 'Pendente')
+    if (nonPendente.length > 0) {
+      const err: any = new Error(
+        `Agenda #${agenda.id_agenda} possui ${nonPendente.length} visita(s) com status diferente de "Pendente". Não é possível trocar.`
+      )
+      err.code = 'VISITAS_NOT_PENDENTE'
+      throw err
+    }
+  }
+
+  const data1 = (agenda1.data_agenda ?? '').slice(0, 10)
+  const data2 = (agenda2.data_agenda ?? '').slice(0, 10)
+
+  if (!data1 || !data2) {
+    const err: any = new Error('Uma ou ambas as agendas não possuem data definida.')
+    err.code = 'MISSING_DATE'
+    throw err
+  }
+
+  // Swap dates
+  if (isSupabaseEnabled()) {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const sb = getSupabaseAdmin()
+    // Use a transaction-like approach: update both
+    const { error: e1 } = await sb
+      .from('ag_agenda')
+      .update({ data_agenda: data2 })
+      .eq('id_agenda', id_agenda_1)
+    if (e1) throw e1
+    const { error: e2 } = await sb
+      .from('ag_agenda')
+      .update({ data_agenda: data1 })
+      .eq('id_agenda', id_agenda_2)
+    if (e2) throw e2
+    return
+  }
+
+  // Prisma — transaction
+  await db.$transaction([
+    db.ag_agenda.update({
+      where: { id_agenda: id_agenda_1 },
+      data: { data_agenda: new Date(`${data2}T00:00:00`) },
+    }),
+    db.ag_agenda.update({
+      where: { id_agenda: id_agenda_2 },
+      data: { data_agenda: new Date(`${data1}T00:00:00`) },
+    }),
+  ])
+}

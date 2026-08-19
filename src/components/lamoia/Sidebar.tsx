@@ -1,10 +1,10 @@
 'use client'
 
-import { LayoutDashboard, FileCheck2, CalendarPlus, ListChecks, LogOut, X, LineChart, Users } from 'lucide-react'
+import { LayoutDashboard, FileCheck2, CalendarPlus, ListChecks, LogOut, X, LineChart, Users, ArrowLeftRight } from 'lucide-react'
 import Image from 'next/image'
 import type { SessionPayload } from '@/lib/auth'
 
-export type ModuleKey = 'dashboard' | 'auditoria' | 'cadastro' | 'lista' | 'acompanhamento' | 'usuarios'
+export type ModuleKey = 'dashboard' | 'auditoria' | 'cadastro' | 'lista' | 'acompanhamento' | 'usuarios' | 'alteracao-rota'
 
 interface SidebarProps {
   current: ModuleKey
@@ -22,7 +22,7 @@ interface SidebarProps {
  * |---------------|-----------|-----------|----------|-------|----------------|----------|
  * | Admin Senior  | ✅        | ✅        | ✅       | ✅    | ✅             | ✅       |
  * | Admin Junior  | ✅        | ✅        | ✅       | ✅    | ✅             | ❌       |
- * | Comercial     | ✅        | ❌        | ✅       | ✅    | ✅             | ❌       |
+ * | Comercial     | ✅        | ✅ (R/O)  | ✅       | ✅    | ✅             | ❌       |
  */
 function getAllowedModules(tipo: string | null | undefined): ModuleKey[] {
   if (tipo === 'Admin Senior') {
@@ -32,7 +32,7 @@ function getAllowedModules(tipo: string | null | undefined): ModuleKey[] {
     return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento']
   }
   if (tipo === 'Comercial') {
-    return ['dashboard', 'cadastro', 'lista', 'acompanhamento']
+    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'alteracao-rota']
   }
   // Fallback: only dashboard
   return ['dashboard']
@@ -45,6 +45,7 @@ export function Sidebar({ current, onNavigate, session, onLogout, isOpen, onClos
     { key: 'cadastro', label: 'Cadastro de Agenda', icon: CalendarPlus, description: 'Nova agenda' },
     { key: 'lista', label: 'Lista de Agendas', icon: ListChecks, description: 'Agendas cadastradas' },
     { key: 'acompanhamento', label: 'Acompanhamento', icon: LineChart, description: 'Vendedores' },
+    { key: 'alteracao-rota', label: 'Alteração de Rota', icon: ArrowLeftRight, description: 'Alterar datas' },
     { key: 'usuarios', label: 'Usuários', icon: Users, description: 'Gestão de acessos' },
   ]
 

@@ -111,7 +111,7 @@ function formatPermanencia(
   }
 }
 
-export function Auditoria() {
+export function Auditoria({ readOnly: forceReadOnly = false }: { readOnly?: boolean } = {}) {
   const [dataAgenda, setDataAgenda] = useState(() => new Date().toISOString().slice(0, 10))
   const [vendedores, setVendedores] = useState<{ id_user: number; Nome: string | null }[]>([])
   const [idVendedor, setIdVendedor] = useState('')
@@ -235,7 +235,7 @@ export function Auditoria() {
     setObsGeral('')
   }
 
-  const readOnly = result?.readOnly === true
+  const readOnly = forceReadOnly || result?.readOnly === true
 
   return (
     <div className="p-4 lg:p-6 space-y-6">

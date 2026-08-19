@@ -10,6 +10,7 @@ import { CadastroAgenda } from '@/components/lamoia/CadastroAgenda'
 import { ListaAgendas } from '@/components/lamoia/ListaAgendas'
 import { AcompanhamentoVendedores } from '@/components/lamoia/AcompanhamentoVendedores'
 import { Usuarios } from '@/components/lamoia/Usuarios'
+import { AlteracaoRota } from '@/components/lamoia/AlteracaoRota'
 import type { SessionPayload } from '@/lib/auth'
 
 const TITLES: Record<ModuleKey, { title: string; subtitle: string }> = {
@@ -18,6 +19,7 @@ const TITLES: Record<ModuleKey, { title: string; subtitle: string }> = {
   cadastro: { title: 'Cadastro de Agenda', subtitle: 'Nova agenda manual ou via Excel' },
   lista: { title: 'Lista de Agendas', subtitle: 'Consulte e gerencie as agendas' },
   acompanhamento: { title: 'Acompanhamento de Vendedores', subtitle: 'Carteira, desempenho e produtividade' },
+  'alteracao-rota': { title: 'Alteração de Rota', subtitle: 'Altere ou troque datas de agendas' },
   usuarios: { title: 'Usuários', subtitle: 'Gestão de cadastro e acessos' },
 }
 
@@ -33,7 +35,7 @@ function getAllowedModules(tipo: string | null | undefined): ModuleKey[] {
     return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento']
   }
   if (tipo === 'Comercial') {
-    return ['dashboard', 'cadastro', 'lista', 'acompanhamento']
+    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'alteracao-rota']
   }
   return ['dashboard']
 }
@@ -126,7 +128,9 @@ export default function Home() {
               userName={session.Nome}
             />
           )}
-          {module === 'auditoria' && <Auditoria />}
+          {module === 'auditoria' && (
+            <Auditoria readOnly={session.Tipo === 'Comercial'} />
+          )}
           {module === 'cadastro' && <CadastroAgenda />}
           {module === 'lista' && <ListaAgendas />}
           {module === 'acompanhamento' && (
@@ -134,6 +138,9 @@ export default function Home() {
               isComercial={session.Tipo === 'Comercial'}
               userId={session.id_user}
             />
+          )}
+          {module === 'alteracao-rota' && (
+            <AlteracaoRota session={session} />
           )}
           {module === 'usuarios' && <Usuarios />}
         </main>
