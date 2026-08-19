@@ -60,12 +60,15 @@ function parseMegaKey(keyB64: string) {
   return { k, iv0, iv1, keyBytes }
 }
 
-/** Build a 16-byte CTR nonce from iv0, iv1 */
+/**
+ * MEGA CTR nonce: 128-bit counter, initial value in upper 64 bits.
+ * = ((iv0 << 32) + iv1) << 64
+ */
 function buildCtrNonce(iv0: number, iv1: number): Buffer {
+  const big = (BigInt(iv0 >>> 0) * (2n ** 32n) + BigInt(iv1 >>> 0)) * (2n ** 64n)
   const nonce = Buffer.alloc(16)
-  nonce.writeUInt32BE(iv0, 0)
-  nonce.writeUInt32BE(iv1, 4)
-  // bytes 8-15 stay zero (counter starts at 0)
+  nonce.writeBigUInt64BE(big >> 64n, 0)
+  nonce.writeBigUInt64BE(big & 0xFFFFFFFFFFFFFFFFn, 8)
   return nonce
 }
 
