@@ -563,10 +563,16 @@ function toImageUrl(loc: string | null | undefined): string | null {
     return `https://drive.google.com/thumbnail?id=${m3[1]}&sz=w1000`
   }
 
-  // 4. MEGA links — cannot be embedded directly (requires JS decryption).
-  //    Return null so the UI shows "Sem URL" instead of a broken image.
-  if (/mega\.nz\//i.test(trimmed)) {
-    return null
+  // 4. MEGA links — use server-side proxy to fetch, decrypt and serve.
+  //    /api/fotos/mega/FILE_ID?key=KEY
+  const m4 = trimmed.match(/mega\.nz\/file\/([a-zA-Z0-9_-]+)#([a-zA-Z0-9_-]+)/)
+  if (m4) {
+    return `/api/fotos/mega/${m4[1]}?k=${encodeURIComponent(m4[2])}`
+  }
+  // Old MEGA format: /#!ID!KEY
+  const m4b = trimmed.match(/mega\.nz\/#!([a-zA-Z0-9_-]+)!([a-zA-Z0-9_-]+)/)
+  if (m4b) {
+    return `/api/fotos/mega/${m4b[1]}?k=${encodeURIComponent(m4b[2])}`
   }
 
   // 5. Any other URL (direct image links, base64 data URIs, etc.) — use as-is
