@@ -17,6 +17,9 @@ export function LogAcesso() {
   const [loading, setLoading] = useState(true)
   const [logs, setLogs] = useState<LogRow[]>([])
   const [busca, setBusca] = useState('')
+  const [usuarioFiltro, setUsuarioFiltro] = useState('')
+  const [dataDe, setDataDe] = useState('')
+  const [dataAte, setDataAte] = useState('')
 
   const loadLogs = useCallback(async () => {
     setLoading(true)
@@ -39,14 +42,37 @@ export function LogAcesso() {
     loadLogs()
   }, [loadLogs])
 
+  const usuarios = useMemo(() => {
+    const set = new Set<string>()
+    for (const l of logs) {
+      if (l.login) set.add(l.login)
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [logs])
+
   const filtered = useMemo(() => {
     const termo = busca.trim().toLowerCase()
-    if (!termo) return logs
-    return logs.filter((l) =>
-      (l.login ?? '').toLowerCase().includes(termo) ||
-      (l.ip ?? '').toLowerCase().includes(termo)
-    )
-  }, [logs, busca])
+    const de = dataDe ? new Date(dataDe + 'T00:00:00') : null
+    const ate = dataAte ? new Date(dataAte + 'T23:59:59') : null
+    return logs.filter((l) => {
+      if (usuarioFiltro && l.login !== usuarioFiltro) return false
+      if (termo && !(
+        (l.login ?? '').toLowerCase().includes(termo) ||
+        (l.ip ?? '').toLowerCase().includes(termo)
+      )) return false
+      const quando = new Date(l.data_hora)
+      if (de && quando < de) return false
+      if (ate && quando > ate) return false
+      return true
+    })
+  }, [logs, busca, usuarioFiltro, dataDe, dataAte])
+
+  function limparFiltros() {
+    setBusca('')
+    setUsuarioFiltro('')
+    setDataDe('')
+    setDataAte('')
+  }
 
   function formatarData(iso: string) {
     try {
@@ -66,20 +92,71 @@ export function LogAcesso() {
 
       {/* Filter */}
       <div className="rounded-xl border border-border bg-card p-4 card-shadow">
-        <div className="space-y-2 max-w-sm">
-          <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">
-            Buscar por login ou IP
-          </label>
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <div className="flex flex-wrap gap-4 items-end">
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">
+              Usuário / Pessoa
+            </label>
+            <select
+              value={usuarioFiltro}
+              onChange={(e) => setUsuarioFiltro(e.target.value)}
+              className="h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-48"
+            >
+              <option value="">Todos os usuários</option>
+              {usuarios.map((u) => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">
+              De
+            </label>
             <input
-              type="text"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="ex: bruno"
-              className="w-full h-10 pl-9 pr-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              type="date"
+              value={dataDe}
+              onChange={(e) => setDataDe(e.target.value)}
+              className="h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
+
+          <div className="space-y-2">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">
+              Até
+            </label>
+            <input
+              type="date"
+              value={dataAte}
+              onChange={(e) => setDataAte(e.target.value)}
+              className="h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          <div className="space-y-2 flex-1 min-w-48">
+            <label className="block text-[11px] font-bold text-foreground uppercase tracking-wide">
+              Buscar por login ou IP
+            </label>
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="ex: bruno"
+                className="w-full h-10 pl-9 pr-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          {(busca || usuarioFiltro || dataDe || dataAte) && (
+            <button
+              onClick={limparFiltros}
+              className="h-10 px-4 rounded-lg border border-border bg-background text-sm font-medium hover:bg-muted transition"
+            >
+              Limpar filtros
+            </button>
+          )}
         </div>
       </div>
 
