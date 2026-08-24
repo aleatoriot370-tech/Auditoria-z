@@ -85,3 +85,12 @@ model fotos_vis {
   Loc_Foto   String?  // URL or path to the photo
   ag_agenda_diaria ag_agenda_diaria? @relation(fields: [id_vis], references: [id_ad], onDelete: Cascade, onUpdate: Cascade)
 }
+
+model log_acesso {
+  id_log     Int      @id @default(autoincrement())
+  id_user    Int?
+  login      String?
+  ip         String?
+  user_agent String?
+  data_hora  DateTime @default(now())
+}

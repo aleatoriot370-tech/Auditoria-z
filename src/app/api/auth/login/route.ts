@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { validateLogin, isSupabaseEnabled } from '@/lib/datasource'
+import { validateLogin, isSupabaseEnabled, registrarAcesso } from '@/lib/datasource'
 import { setSession } from '@/lib/auth'
 
 export const runtime = 'nodejs'
@@ -42,6 +42,18 @@ export async function POST(req: NextRequest) {
       Tipo: result.usuario.Tipo,
       Status: result.usuario.Status,
     })
+
+    // Não bloqueia o login se o registro do log falhar.
+    try {
+      await registrarAcesso({
+        id_user: result.usuario.id_user,
+        login: result.usuario.Login,
+        ip: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip'),
+        user_agent: req.headers.get('user-agent'),
+      })
+    } catch (logErr: any) {
+      console.warn('[login] falha ao registrar log de acesso:', logErr?.message || logErr)
+    }
 
     return NextResponse.json({ sucesso: true, usuario: result.usuario })
   } catch (err: any) {

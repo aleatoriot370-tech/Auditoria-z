@@ -11,6 +11,7 @@ import { ListaAgendas } from '@/components/lamoia/ListaAgendas'
 import { AcompanhamentoVendedores } from '@/components/lamoia/AcompanhamentoVendedores'
 import { Usuarios } from '@/components/lamoia/Usuarios'
 import { AlteracaoRota } from '@/components/lamoia/AlteracaoRota'
+import { LogAcesso } from '@/components/lamoia/LogAcesso'
 import type { SessionPayload } from '@/lib/auth'
 
 const TITLES: Record<ModuleKey, { title: string; subtitle: string }> = {
@@ -21,6 +22,7 @@ const TITLES: Record<ModuleKey, { title: string; subtitle: string }> = {
   acompanhamento: { title: 'Acompanhamento de Vendedores', subtitle: 'Carteira, desempenho e produtividade' },
   'alteracao-rota': { title: 'Alteração de Rota', subtitle: 'Altere ou troque datas de agendas' },
   usuarios: { title: 'Usuários', subtitle: 'Gestão de cadastro e acessos' },
+  'log-acesso': { title: 'Log de Acessos', subtitle: 'Histórico de logins no sistema' },
 }
 
 /**
@@ -29,7 +31,7 @@ const TITLES: Record<ModuleKey, { title: string; subtitle: string }> = {
  */
 function getAllowedModules(tipo: string | null | undefined): ModuleKey[] {
   if (tipo === 'Admin Senior') {
-    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'usuarios', 'alteracao-rota']
+    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'usuarios', 'alteracao-rota', 'log-acesso']
   }
   if (tipo === 'Admin Junior') {
     return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'alteracao-rota']
@@ -143,6 +145,7 @@ export default function Home() {
             <AlteracaoRota session={session} />
           )}
           {module === 'usuarios' && <Usuarios />}
+          {module === 'log-acesso' && <LogAcesso />}
         </main>
       </div>
     </div>

@@ -1,10 +1,10 @@
 'use client'
 
-import { LayoutDashboard, FileCheck2, CalendarPlus, ListChecks, LogOut, X, LineChart, Users, ArrowLeftRight } from 'lucide-react'
+import { LayoutDashboard, FileCheck2, CalendarPlus, ListChecks, LogOut, X, LineChart, Users, ArrowLeftRight, History } from 'lucide-react'
 import Image from 'next/image'
 import type { SessionPayload } from '@/lib/auth'
 
-export type ModuleKey = 'dashboard' | 'auditoria' | 'cadastro' | 'lista' | 'acompanhamento' | 'usuarios' | 'alteracao-rota'
+export type ModuleKey = 'dashboard' | 'auditoria' | 'cadastro' | 'lista' | 'acompanhamento' | 'usuarios' | 'alteracao-rota' | 'log-acesso'
 
 interface SidebarProps {
   current: ModuleKey
@@ -23,10 +23,12 @@ interface SidebarProps {
  * | Admin Senior  | ✅        | ✅        | ✅       | ✅    | ✅             | ✅       |
  * | Admin Junior  | ✅        | ✅        | ✅       | ✅    | ✅             | ❌       |
  * | Comercial     | ✅        | ✅ (R/O)  | ✅       | ✅    | ✅             | ❌       |
+ *
+ * Log de Acessos segue a mesma restrição de Usuários (Admin Senior apenas).
  */
 function getAllowedModules(tipo: string | null | undefined): ModuleKey[] {
   if (tipo === 'Admin Senior') {
-    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'usuarios', 'alteracao-rota']
+    return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'usuarios', 'alteracao-rota', 'log-acesso']
   }
   if (tipo === 'Admin Junior') {
     return ['dashboard', 'auditoria', 'cadastro', 'lista', 'acompanhamento', 'alteracao-rota']
@@ -47,6 +49,7 @@ export function Sidebar({ current, onNavigate, session, onLogout, isOpen, onClos
     { key: 'acompanhamento', label: 'Acompanhamento', icon: LineChart, description: 'Vendedores' },
     { key: 'alteracao-rota', label: 'Alteração de Rota', icon: ArrowLeftRight, description: 'Alterar datas' },
     { key: 'usuarios', label: 'Usuários', icon: Users, description: 'Gestão de acessos' },
+    { key: 'log-acesso', label: 'Log de Acessos', icon: History, description: 'Histórico de logins' },
   ]
 
   const allowedModules = getAllowedModules(session?.Tipo)

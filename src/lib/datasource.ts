@@ -13,6 +13,7 @@ import type {
   StatusCount,
   AuditoriaRow,
   FotoVis,
+  LogAcesso,
 } from './types'
 
 // Re-export isSupabaseEnabled so consumers can check it without importing directly from supabase.ts
@@ -113,6 +114,53 @@ export async function validateLogin(login: string, senha: string): Promise<{
 
   const { Senha: _omit, ...safeUser } = user
   return { sucesso: true, usuario: safeUser }
+}
+
+export async function registrarAcesso(entry: {
+  id_user: number
+  login: string | null
+  ip: string | null
+  user_agent: string | null
+}): Promise<void> {
+  if (isSupabaseEnabled()) {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const sb = getSupabaseAdmin()
+    const { error } = await sb.from('log_acesso').insert({
+      id_user: entry.id_user,
+      login: entry.login,
+      ip: entry.ip,
+      user_agent: entry.user_agent,
+    })
+    if (error) throw error
+    return
+  }
+  await db.log_acesso.create({
+    data: {
+      id_user: entry.id_user,
+      login: entry.login,
+      ip: entry.ip,
+      user_agent: entry.user_agent,
+    },
+  })
+}
+
+export async function getLogsAcesso(limit = 200): Promise<LogAcesso[]> {
+  if (isSupabaseEnabled()) {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const sb = getSupabaseAdmin()
+    const { data, error } = await sb
+      .from('log_acesso')
+      .select('*')
+      .order('data_hora', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return (data as LogAcesso[]) ?? []
+  }
+  const rows = await db.log_acesso.findMany({
+    orderBy: { data_hora: 'desc' },
+    take: limit,
+  })
+  return rows as unknown as LogAcesso[]
 }
 
 async function updateUserPassword(id_user: number, newHash: string): Promise<void> {

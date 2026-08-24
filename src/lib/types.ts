@@ -71,6 +71,15 @@ export interface FotoVis {
   Loc_Foto: string | null  // URL or path to the photo
 }
 
+export interface LogAcesso {
+  id_log: number
+  id_user: number | null
+  login: string | null
+  ip: string | null
+  user_agent: string | null
+  data_hora: string
+}
+
 export interface AgendaWithJoins extends Agenda {
   gerente?: { id_user: number; Nome: string | null } | null
   vendedor?: { id_user: number; Nome: string | null } | null
